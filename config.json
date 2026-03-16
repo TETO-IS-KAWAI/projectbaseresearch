@@ -1,0 +1,25 @@
+{
+    "program_info": {
+        "name": "RadioWave HealPix Viewer",
+        "version": "0.1.0"
+    },
+    "display_settings": {
+        "window_width": 1920,
+        "window_height": 1080,
+        "fullscreen": false,
+        "render_resolution": "1080p",
+        "target_fps": 60
+    },
+    "observation_site": {
+        "latitude": 37.5665,
+        "longitude": 126.9780,
+        "altitude_meters": 38.0,
+        "location_name": "Seoul, South Korea",
+        "timezone": "Asia/Seoul"
+    },
+    "simulation_params": {
+        "nside": 16,
+        "use_relativistic_correction": true,
+        "default_frequency_ghz": [100, 200, 300]
+    }
+}
