@@ -6,3 +6,5 @@
 with @mikuiskawai
 
 근데 얘도 요즘 깃허브 쓰는지는 모르겠음
+
+난개발 중인데 현재 rt_combined 폴더 주로 사용
