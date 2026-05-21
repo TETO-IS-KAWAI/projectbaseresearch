@@ -1,0 +1,8 @@
+# 선택 설치 — 실패해도 메인 앱은 동작함
+#
+# mocpy: MOC FITS보내기 (커버리지 표시는 mocpy 없이도 HEALPix 마스크로 동작)
+#
+#   pip install -r requirements.txt
+#   pip install -r requirements-optional.txt
+
+mocpy>=0.14
