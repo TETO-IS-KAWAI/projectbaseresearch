@@ -1,0 +1,16 @@
+{
+  "meta": {
+    "name": "1",
+    "created": "2026-05-28T14:39:51.533079",
+    "nside": 32,
+    "obs_lat": 36.522764,
+    "obs_lon": 127.248878,
+    "obs_height_m": 0.0,
+    "T_sys": 50.0,
+    "G_sys": 1.0,
+    "center_freq_hz": 1420405751.77,
+    "sample_rate": 2500000.0,
+    "nfft": 2048
+  },
+  "observations": []
+}

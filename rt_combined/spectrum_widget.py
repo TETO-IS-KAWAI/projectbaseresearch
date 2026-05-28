@@ -333,8 +333,20 @@ class SpectrumPlotArea(QWidget):
     def update_plots(self, r: dict):
         mask = r['freqs_corrected'] > 0
         fg   = r['freqs_corrected'][mask] / 1e9
-        self._pc.setData(fg, 10*np.log10(r['power'][mask]+1e-30))
-        self._tc.setData(fg, r['T_b_spectrum'])
+        power_db = 10*np.log10(r['power'][mask]+1e-30)
+        t_b_spec = r['T_b_spectrum']
+        
+        valid_mask = np.isfinite(fg) & np.isfinite(power_db) & np.isfinite(t_b_spec)
+        if np.any(valid_mask):
+            fg_valid = fg[valid_mask]
+            power_valid = power_db[valid_mask]
+            t_b_valid = t_b_spec[valid_mask]
+            self._pc.setData(fg_valid, power_valid)
+            self._tc.setData(fg_valid, t_b_valid)
+        else:
+            self._pc.setData([], [])
+            self._tc.setData([], [])
+        
         self._tsl.setValue(r['T_brightness'])
         self._trl.setValue(r['T_b_raw'])
         self._tsl.label.setFormat(f'T_sky = {r["T_brightness"]:.3f} K')
