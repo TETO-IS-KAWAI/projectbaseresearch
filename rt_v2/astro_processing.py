@@ -14,6 +14,7 @@ HEALPix 연산은 astropy-healpix (BSD) 만 사용합니다.
 
 import warnings
 import numpy as np
+from pathlib import Path
 
 from astropy.time import Time
 from astropy.coordinates import EarthLocation, SkyCoord
@@ -55,6 +56,50 @@ def load_iq_bin(filepath: str) -> np.ndarray:
     if raw.size % 2 != 0:
         raw = raw[:-1]
     return (raw[0::2] + 1j * raw[1::2]).astype(np.complex64)
+
+
+def load_iq_wav(filepath: str) -> np.ndarray:
+    """
+    WAV 파일 → complex64 배열 반환.
+    - 스테레오: Left=I, Right=Q
+    - 모노: I만 사용 (Q=0)
+    """
+    import wave
+
+    with wave.open(filepath, 'rb') as wav_file:
+        n_channels = wav_file.getnchannels()
+        sample_width = wav_file.getsampwidth()
+        n_frames = wav_file.getnframes()
+
+        frames = wav_file.readframes(n_frames)
+        audio_data = np.frombuffer(frames, dtype=np.int16 if sample_width == 2 else np.int32)
+
+        if n_channels > 1:
+            audio_data = audio_data.reshape(-1, n_channels)
+            i_samples = audio_data[:, 0].astype(np.float32) / 32768.0
+            q_samples = audio_data[:, 1].astype(np.float32) / 32768.0
+        else:
+            i_samples = audio_data.astype(np.float32) / 32768.0
+            q_samples = np.zeros_like(i_samples)
+
+    return (i_samples + 1j * q_samples).astype(np.complex64)
+
+
+def load_iq_data(filepath: str) -> np.ndarray:
+    """
+    파일 포맷 자동 감지 후 IQ 데이터 읽기.
+    - .bin: Airspy float32 interleaved
+    - .wav: PCM audio (Stereo: I/Q, Mono: I)
+    """
+    path = Path(filepath)
+    suffix = path.suffix.lower()
+
+    if suffix == '.wav':
+        return load_iq_wav(filepath)
+    elif suffix == '.bin':
+        return load_iq_bin(filepath)
+    else:
+        raise ValueError(f"지원하지 않는 파일 포맷: {suffix}")
 
 
 # ───────────────────────────────────────────────────────────
@@ -398,7 +443,7 @@ def process_observation(
     """
     # IQ 읽기 or 더미 생성
     if bin_filepath is not None:
-        iq = load_iq_bin(bin_filepath)
+        iq = load_iq_data(bin_filepath)
     else:
         iq = generate_dummy_iq(
             ra_deg, dec_deg,

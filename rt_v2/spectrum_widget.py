@@ -86,7 +86,7 @@ class ObsParamPanel(QGroupBox):
         g.addWidget(lbl('관측 시각 (UTC)'), 2,0); g.addLayout(row, 2,1)
 
         self._mode = QComboBox()
-        self._mode.addItems(['더미 데이터', '.bin 파일'])
+        self._mode.addItems(['더미 데이터', 'SDR 데이터 파일'])
         self._mode.currentIndexChanged.connect(lambda i: self._file_row.setVisible(i==1))
         g.addWidget(lbl('데이터 소스'), 3,0); g.addWidget(self._mode, 3,1)
 
@@ -187,8 +187,8 @@ class ObsParamPanel(QGroupBox):
 
     def _pick(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, '.bin 파일 선택', str(self._cfg.data_dir_path),
-            'SDR 파일 (*.bin);;모든 파일 (*)')
+            self, '데이터 파일 선택', str(self._cfg.data_dir_path),
+            'SDR 데이터 (*.bin *.wav);;모든 파일 (*)')
         if path:
             self._bin_path = path
             self._file_lbl.setText(Path(path).name)
