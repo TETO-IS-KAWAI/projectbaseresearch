@@ -867,7 +867,9 @@ def load_iq_bin(filepath: str) -> np.ndarray:
     raw = np.fromfile(filepath, dtype=np.float32)
     if raw.size % 2 != 0:
         raw = raw[:-1]
-    return (raw[0::2] + 1j * raw[1::2]).astype(np.complex64)
+    with np.errstate(invalid='ignore'):
+        result = (raw[0::2] + 1j * raw[1::2]).astype(np.complex64)
+    return result
 
 
 

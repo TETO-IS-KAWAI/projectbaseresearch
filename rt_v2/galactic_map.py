@@ -224,7 +224,7 @@ class PeakListPanel(QWidget):
                 f'{p.d_far_kpc:.2f}'  if np.isfinite(p.d_far_kpc)  else '—',
                 f'{R:.2f}'            if np.isfinite(R)             else '—',
             ]):
-                self._table.setItem(i, j, pg.TableWidget.createItem(val))
+                self._table.setItem(i, j, pg.TableWidgetItem(val))
 
     def clear(self):
         self._table.setRowCount(0)

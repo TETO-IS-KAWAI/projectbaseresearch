@@ -106,7 +106,8 @@ def detect_peaks(
     v_use   = v_arr[in_range]
 
     # NaN → 최솟값으로 채움
-    T_clean = np.where(np.isfinite(T_use), T_use, np.nanmin(T_use))
+    T_min = np.nanmin(T_use)
+    T_clean = np.where(np.isfinite(T_use), T_use, T_min if np.isfinite(T_min) else 0.0)
 
     peak_idx, props = find_peaks(
         T_clean,

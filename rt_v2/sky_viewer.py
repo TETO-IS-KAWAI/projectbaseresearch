@@ -475,10 +475,12 @@ class SkyViewerWidget(QWidget):
             self._build_mesh(sky_map)
             return
         try:
+            self._mesh['T_b'] = self._mesh['T_b']
             self._plotter.update_scalars(
                 'T_b', mesh=self._mesh, render=False, clim=(vmin, vmax))
-        except TypeError:
+        except (TypeError, AttributeError):
             try:
+                self._mesh['T_b'] = self._mesh['T_b']
                 self._plotter.update_scalars('T_b', mesh=self._mesh, render=False)
             except (TypeError, AttributeError):
                 pass
