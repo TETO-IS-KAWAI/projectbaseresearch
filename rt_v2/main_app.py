@@ -1,15 +1,4 @@
-"""
-main_app.py
-HI 21cm 전파망원경 소프트웨어 — 진입점
-
-탭 구조
-  좌측 고정 : 스펙트럼 분석기  (spectrum_widget)
-  Tab 1    : 3D 전천 히트맵   (sky_viewer)
-  Tab 2    : 은하 조감도      (galactic_map)
-"""
-
 from __future__ import annotations
-
 import sys
 from pathlib import Path
 
