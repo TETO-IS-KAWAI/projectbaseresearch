@@ -225,7 +225,7 @@ def analyze_observation(result: dict) -> SpiralArmResult:
         return arm_result
 
     mask        = result['freqs_corrected'] > 0
-    T_b_spec    = result['T_b_spectrum']
+    T_b_spec    = result['T_b_spectrum'][mask]
     freqs_corr  = result['freqs_corrected'][mask]
 
     raw_peaks = detect_peaks(T_b_spec, freqs_corr)
