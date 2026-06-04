@@ -303,13 +303,25 @@ class GalacticMapWidget(QWidget):
         """obs_finished 수신 → 나선팔 분석 → 지도 갱신."""
         arm_result = analyze_observation(result)
 
+        # xy 좌표가 유효한 피크만 추림 (nan이면 조감도에 찍을 수 없음)
+        plottable = [
+            p for p in arm_result.peaks
+            if np.isfinite(p.x_near_kpc) or np.isfinite(p.x_far_kpc)
+        ]
+
         if arm_result.peaks:
-            self._plot.add_peaks(arm_result.peaks)
-            self._peak_panel.update_peaks(arm_result)
-            self._status.setText(
-                f'l={arm_result.l_deg:.1f}°  b={arm_result.b_deg:.1f}°  '
-                f'피크 {len(arm_result.peaks)}개 감지  '
-                f'| ● 근거리  ▲ 원거리(모호성)')
+            self._peak_panel.update_peaks(arm_result)   # 테이블은 항상 갱신
+            if plottable:
+                self._plot.add_peaks(plottable)
+                self._status.setText(
+                    f'l={arm_result.l_deg:.1f}°  b={arm_result.b_deg:.1f}°  '
+                    f'피크 {len(arm_result.peaks)}개 감지 (지도 {len(plottable)}개)  '
+                    f'| ● 근거리  ▲ 원거리(모호성)')
+            else:
+                self._status.setText(
+                    f'l={arm_result.l_deg:.1f}°  b={arm_result.b_deg:.1f}°  '
+                    f'피크 {len(arm_result.peaks)}개 감지 — 이 방향은 운동학적 거리 계산 불가 '
+                    f'(은하 중심/반중심 방향 또는 고위도)')
         else:
             self._status.setText(
                 f'l={arm_result.l_deg:.1f}°  b={arm_result.b_deg:.1f}°  '

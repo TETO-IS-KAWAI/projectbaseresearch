@@ -16,8 +16,8 @@ from astropy.io import fits
 from astropy_healpix import HEALPix
 import astropy.units as u
 
-from config import Config, _ASSETS_DIR
-from astro_processing import HI_FREQ_HZ
+from old_versions.at_april_second.config import Config, _ASSETS_DIR
+from old_versions.at_april_second.astro_processing import HI_FREQ_HZ
 
 # ── FITS 후보 경로 (우선순위) ─────────────────────────────────
 FG_FITS_CANDIDATES = (

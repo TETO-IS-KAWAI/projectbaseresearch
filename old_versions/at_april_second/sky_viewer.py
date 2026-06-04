@@ -25,10 +25,10 @@ from PySide6.QtWidgets import (
 import pyvista as pv
 from pyvistaqt import QtInteractor
 
-from config import Config
-from astro_processing import get_pixel_coords, _hi_temperature_model
-from data_manager import get_project
-from ui_theme import BG, BG2, BG3, FG, FG2, ACC, BTN_STYLE
+from old_versions.at_april_second.config import Config
+from old_versions.at_april_second.astro_processing import get_pixel_coords, _hi_temperature_model
+from old_versions.at_april_second.data_manager import get_project
+from old_versions.at_april_second.ui_theme import BG, BG2, BG3, FG, FG2, ACC, BTN_STYLE
 from ui_icons import icon, ICON_SIZE_TOOLBAR
 
 
@@ -359,7 +359,7 @@ class SkyViewerWidget(QWidget):
         if self._fg_map is None:
             self._status.setText('전경 모델 로딩 중...')
             try:
-                from foreground_processing import get_foreground_map
+                from old_versions.at_april_second.foreground_processing import get_foreground_map
                 self._fg_map, self._fg_method = get_foreground_map(self._nside)
                 label = 'FITS' if self._fg_method == 'fits' else '해석식'
                 self._status.setText(f'전경 모델 로드 ({label}).')
@@ -397,7 +397,7 @@ class SkyViewerWidget(QWidget):
         self._moc_on = not self._moc_on
         self._moc_btn.setText('커버리지 끄기' if self._moc_on else '커버리지 표시')
 
-        from moc_manager import get_moc_manager
+        from old_versions.at_april_second.moc_manager import get_moc_manager
         proj = get_project()
         mm   = get_moc_manager(self._nside)
         if proj.is_open:
@@ -424,7 +424,7 @@ class SkyViewerWidget(QWidget):
             self._apply_map(base)
 
     def _export_moc(self):
-        from moc_manager import get_moc_manager
+        from old_versions.at_april_second.moc_manager import get_moc_manager
         proj = get_project()
         mm   = get_moc_manager(self._nside)
         if proj.is_open:

@@ -886,21 +886,45 @@ def load_iq_wav(
     - RIFF WAV  : 표준 WAV (< 4 GB)
     - RF64 WAV  : 확장 WAV (≥ 4 GB 또는 SDR 소프트웨어 기본값)
 
+    지원 샘플 포맷
+    -------------
+    - int16 PCM  (audio_format=1, bits=16) : SDR#, GQRX 기본
+    - int8  PCM  (audio_format=1, bits=8)
+    - int32 PCM  (audio_format=1, bits=32)
+    - float32    (audio_format=3, bits=32) : Airspy HF+ 등
+    - WAVE_FORMAT_EXTENSIBLE (audio_format=0xFFFE) : SubFormat 자동 판별
+
     데이터 구조
     -----------
     2채널 인터리브:  ch1 = I,  ch2 = Q
-    샘플 포맷:       int16 PCM  (÷ 32768 → float32 [-1, 1])
-    전형적인 값:     SDR# / GQRX 등이 생성하는 표준 IQ WAV
 
     Parameters
     ----------
     max_seconds : 최대 읽을 길이 [초]. None 이면 전체.
                   대용량 파일에서 메모리를 절약할 때 사용.
+
+    수정 이력
+    ---------
+    - [BUG-1] RIFF fmt_offset 고정(=12): junk/LIST 등 선행 청크 있을 때 오파싱
+              → WAVE 서명 이후 청크를 순회하여 fmt 위치를 탐색하도록 수정
+    - [BUG-2] data_start = fmt_offset+8+fmt_size+8 고정:
+              fmt 뒤에 fact/LIST 등 중간 청크가 있을 때 오프셋 오계산
+              → fmt 이후도 청크 순회하여 'data' 청크를 직접 탐색
+    - [BUG-3] audio_format 미검증: float32 PCM(format=3) 파일을 int16으로
+              읽어 완전히 잘못된 IQ값 생성
+              → audio_format / SubFormat GUID 판별 후 dtype 분기
+    - [BUG-4] bits != 16 일 때 np.frombuffer dtype=int16 고정:
+              bits=8/24/32 에서 샘플 수와 값 모두 틀림
+              → bits에 맞는 dtype 선택 (int8/int16/int32/float32)
+    - [BUG-5] RF64 ds64 파싱: fmt_offset = 12+8+ds64_size 는 올바르나
+              ds64_size를 header[16:20]에서 읽으므로 header 버퍼가
+              128바이트로 충분한지 확인 필요 → 필요 시 재읽기로 보완
     """
     import struct
 
+    # ── 헤더를 넉넉히 읽기 (청크 순회를 위해 512 바이트)
     with open(filepath, 'rb') as f:
-        header = f.read(128)
+        header = f.read(512)
 
     magic = header[:4]
     if magic not in (b'RIFF', b'RF64'):
@@ -911,51 +935,135 @@ def load_iq_wav(
 
     is_rf64 = (magic == b'RF64')
 
-    # ── fmt 청크 위치 계산
-    if is_rf64:
-        ds64_size  = struct.unpack_from('<I', header, 16)[0]
-        fmt_offset = 12 + 8 + ds64_size   # WAVE(4) + chunkID(4)+size(4) + ds64 body
-    else:
-        fmt_offset = 12                    # WAVE(4) + 8 = 12
+    # ── [BUG-1 수정] 청크 순회로 fmt 위치 탐색
+    # RF64: WAVE(offset=8) 뒤 첫 청크는 반드시 ds64
+    # RIFF: WAVE(offset=8) 뒤 청크 순회 (junk/LIST/bext 등 건너뜀)
+    wave_pos = 12   # 'WAVE' 4바이트 직후
+
+    fmt_offset   = None
+    data_offset  = None   # data body 시작 위치 (청크 순회 1차 패스로 기록)
+
+    pos = wave_pos
+    while pos + 8 <= len(header):
+        chunk_id   = header[pos:pos+4]
+        chunk_size = struct.unpack_from('<I', header, pos+4)[0]
+
+        if chunk_id == b'fmt ':
+            fmt_offset = pos
+        elif chunk_id == b'data':
+            data_offset = pos + 8   # data body
+            break
+
+        pos += 8 + chunk_size
+        # 홀수 바이트 패딩 (RIFF 스펙)
+        if chunk_size % 2 != 0:
+            pos += 1
+
+    if fmt_offset is None:
+        raise ValueError('WAV 파일에서 fmt 청크를 찾을 수 없습니다.')
 
     # ── fmt 청크 파싱
-    channels    = struct.unpack_from('<H', header, fmt_offset + 10)[0]
-    sample_rate = struct.unpack_from('<I', header, fmt_offset + 12)[0]
-    bits        = struct.unpack_from('<H', header, fmt_offset + 22)[0]
-    fmt_size    = struct.unpack_from('<I', header, fmt_offset +  4)[0]
+    audio_format = struct.unpack_from('<H', header, fmt_offset + 8)[0]
+    channels     = struct.unpack_from('<H', header, fmt_offset + 10)[0]
+    sample_rate  = struct.unpack_from('<I', header, fmt_offset + 12)[0]
+    bits         = struct.unpack_from('<H', header, fmt_offset + 22)[0]
+    fmt_size     = struct.unpack_from('<I', header, fmt_offset +  4)[0]
 
     if channels != 2:
         raise ValueError(
             f'IQ WAV는 2채널(I+Q)이어야 합니다. 현재: {channels}채널'
         )
 
-    # ── data 청크 시작 위치
-    data_start = fmt_offset + 8 + fmt_size + 8  # fmt header + fmt body + data header
+    # ── [BUG-3 수정] audio_format 판별
+    # WAVE_FORMAT_EXTENSIBLE(0xFFFE): SubFormat GUID에서 실제 포맷 읽기
+    is_float = False
+    if audio_format == 0xFFFE:
+        # SubFormat GUID: fmt body offset 24 (cbSize=2, valid_bits=2, mask=4, GUID=16)
+        subformat_offset = fmt_offset + 8 + 24
+        if subformat_offset + 2 <= len(header):
+            subformat_tag = struct.unpack_from('<H', header, subformat_offset)[0]
+            if subformat_tag == 3:
+                is_float = True
+            elif subformat_tag != 1:
+                raise ValueError(
+                    f'WAVEFORMATEXTENSIBLE SubFormat {subformat_tag:#06x} 미지원\n'
+                    f'PCM(0x0001) 또는 IEEE_FLOAT(0x0003)만 지원합니다.'
+                )
+    elif audio_format == 3:
+        is_float = True
+    elif audio_format != 1:
+        raise ValueError(
+            f'지원하지 않는 audio_format: {audio_format:#06x}\n'
+            f'PCM(1), IEEE_FLOAT(3), EXTENSIBLE(0xFFFE)만 지원합니다.'
+        )
 
-    # ── 읽을 샘플 수 계산
-    bytes_per_frame = channels * (bits // 8)
+    # ── [BUG-4 수정] bits → numpy dtype 선택
+    if is_float:
+        if bits == 32:
+            sample_dtype = np.float32
+        elif bits == 64:
+            sample_dtype = np.float64
+        else:
+            raise ValueError(f'float WAV의 bits={bits} 미지원 (32 또는 64만 가능)')
+    else:
+        pcm_dtype_map = {8: np.int8, 16: np.int16, 32: np.int32}
+        if bits not in pcm_dtype_map:
+            raise ValueError(
+                f'PCM bits={bits} 미지원. 지원: 8, 16, 32\n'
+                f'(24-bit PCM은 현재 미지원)'
+            )
+        sample_dtype = pcm_dtype_map[bits]
+
+    # ── [BUG-2 수정] data 청크를 청크 순회로 탐색
+    # 512바이트 버퍼에서 못 찾은 경우 파일을 더 읽어 탐색
+    if data_offset is None:
+        with open(filepath, 'rb') as f:
+            # fmt 이후부터 탐색 (대용량 헤더 대비 4KB)
+            f.seek(fmt_offset + 8 + fmt_size)
+            extra = f.read(4096)
+        epos = 0
+        while epos + 8 <= len(extra):
+            cid   = extra[epos:epos+4]
+            csz   = struct.unpack_from('<I', extra, epos+4)[0]
+            if cid == b'data':
+                data_offset = (fmt_offset + 8 + fmt_size) + epos + 8
+                break
+            epos += 8 + csz
+            if csz % 2 != 0:
+                epos += 1
+        if data_offset is None:
+            raise ValueError('WAV 파일에서 data 청크를 찾을 수 없습니다.')
+
+    # ── 읽을 바이트 수 계산
+    bytes_per_sample = bits // 8
+    bytes_per_frame  = channels * bytes_per_sample
     if max_seconds is not None:
         max_frames = int(max_seconds * sample_rate)
         read_bytes = max_frames * bytes_per_frame
     else:
         read_bytes = None   # 전체
 
-    # ── 데이터 읽기 (int16 PCM)
+    # ── 데이터 읽기
     with open(filepath, 'rb') as f:
-        f.seek(data_start)
-        raw = np.frombuffer(
-            f.read(read_bytes), dtype=np.int16
-        )
+        f.seek(data_offset)
+        raw_bytes = f.read(read_bytes)
 
+    raw = np.frombuffer(raw_bytes, dtype=sample_dtype)
+
+    # 홀수 샘플 제거
     if raw.size % 2 != 0:
         raw = raw[:-1]
 
-    # int16 → float32 [-1, 1] → complex64
-    scale = 1.0 / (2 ** (bits - 1))
-    I = raw[0::2].astype(np.float32) * scale
-    Q = raw[1::2].astype(np.float32) * scale
-    iq = (I + 1j * Q).astype(np.complex64)
+    # ── float / int → complex64 변환
+    if is_float:
+        I = raw[0::2].astype(np.float32)
+        Q = raw[1::2].astype(np.float32)
+    else:
+        scale = 1.0 / (2 ** (bits - 1))
+        I = raw[0::2].astype(np.float32) * scale
+        Q = raw[1::2].astype(np.float32) * scale
 
+    iq = (I + 1j * Q).astype(np.complex64)
     return iq, int(sample_rate)
 
 

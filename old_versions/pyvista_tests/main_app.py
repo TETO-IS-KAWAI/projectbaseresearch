@@ -17,38 +17,12 @@ from PySide6.QtWidgets import (
     QFileDialog, QMessageBox, QInputDialog,
     QLabel, QStatusBar,
 )
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QFont
 
-from config import Config
-from ui_theme import APP_STYLESHEET, BG, FG, BG3
-from data_manager import get_project
-from spectrum_widget import SpectrumWidget
-from sky_viewer import SkyViewerWidget
-from galactic_map import GalacticMapWidget
-
-_TAB_STYLE = f"""
-QTabWidget::pane {{
-    border: 1px solid {BG3};
-    background: {BG};
-}}
-QTabBar::tab {{
-    background: {BG};
-    color: {FG};
-    padding: 7px 20px;
-    border: 1px solid {BG3};
-    border-bottom: none;
-    border-radius: 4px 4px 0 0;
-    font-size: 13px;
-}}
-QTabBar::tab:selected {{
-    background: #e0faf4;
-    color: #008f77;
-    font-weight: 600;
-}}
-QTabBar::tab:hover {{
-    background: #f0faf7;
-}}
-"""
+from old_versions.pyvista_tests.config import Config
+from old_versions.pyvista_tests.data_manager import get_project
+from old_versions.pyvista_tests.spectrum_widget import SpectrumWidget
+from old_versions.pyvista_tests.sky_viewer import SkyViewerWidget
 
 
 class MainWindow(QMainWindow):
@@ -61,36 +35,40 @@ class MainWindow(QMainWindow):
         self._connect()
         self.setWindowTitle('HI 21cm 전파망원경 소프트웨어')
         self.resize(1600, 900)
-        self._apply_korean_design_theme()
+        self.setStyleSheet('background:#12121f; color:#e0e0e0;')
 
     # ── UI ──────────────────────────────────────────────────
 
     def _build_ui(self):
-        # VTK(OpenGL) 먼저 초기화한 뒤 pyqtgraph 위젯 생성 (컨텍스트 충돌 방지)
-        self._viewer  = SkyViewerWidget()
-        self._galmap  = GalacticMapWidget()
-        self._spectrum = SpectrumWidget()
-
-        # 오른쪽: 탭
-        self._tabs = QTabWidget()
-        self._tabs.setStyleSheet(_TAB_STYLE)
-        self._tabs.addTab(self._viewer,  '🌌  3D 전천 히트맵')
-        self._tabs.addTab(self._galmap,  '🌀  은하 조감도 / 나선팔')
-
         splitter = QSplitter(Qt.Horizontal)
+
+        # 왼쪽: 스펙트럼 분석기
+        self._spectrum = SpectrumWidget()
         splitter.addWidget(self._spectrum)
-        splitter.addWidget(self._tabs)
+
+        # 오른쪽: 3D 천구 뷰어
+        self._viewer = SkyViewerWidget()
+        splitter.addWidget(self._viewer)
+
         splitter.setSizes([580, 1020])
         self.setCentralWidget(splitter)
 
         # 상태 바
-        self._statusbar  = QStatusBar()
-        self._status_lbl = QLabel('프로젝트를 열거나 새로 만드세요.  (파일 → 새 프로젝트 / 열기)')
+        self._statusbar = QStatusBar()
+        self._statusbar.setStyleSheet('color:#7aaccc; font-size:11px;')
+        self._status_lbl = QLabel('프로젝트를 열거나 새로 만드세요.  '
+                                  '(파일 → 새 프로젝트 / 열기)')
         self._statusbar.addWidget(self._status_lbl)
         self.setStatusBar(self._statusbar)
 
     def _build_menu(self):
         mb = self.menuBar()
+        mb.setStyleSheet(
+            'QMenuBar{background:#0d0d1a;color:#cce8ff;}'
+            'QMenuBar::item:selected{background:#0f3460;}'
+            'QMenu{background:#0d0d1a;color:#cce8ff;border:1px solid #0f3460;}'
+            'QMenu::item:selected{background:#0f3460;}'
+        )
 
         # ── 파일 메뉴
         file_m = mb.addMenu('파일')
@@ -132,8 +110,6 @@ class MainWindow(QMainWindow):
     def _connect(self):
         # 스펙트럼 분석 완료 → 뷰어 갱신
         self._spectrum.obs_finished.connect(self._viewer.update_from_obs)
-        # 스펙트럼 분석 완료 → 은하 조감도 갱신
-        self._spectrum.obs_finished.connect(self._galmap.update_from_obs)
         # 스펙트럼 분석 완료 → 상태 바 갱신
         self._spectrum.obs_finished.connect(self._on_obs_done)
 
@@ -151,7 +127,6 @@ class MainWindow(QMainWindow):
         self._proj.create(path, name=name.strip())
         self._update_title()
         self._viewer.refresh_from_project()
-        self._galmap.refresh_from_project()
         self._status_lbl.setText(f'새 프로젝트 생성: {Path(path).name}')
 
     def _open_project(self):
@@ -167,7 +142,6 @@ class MainWindow(QMainWindow):
             return
         self._update_title()
         self._viewer.refresh_from_project()
-        self._galmap.refresh_from_project()
         self._status_lbl.setText(
             f'프로젝트 열림: {Path(path).name}  |  '
             f'관측 {self._proj.obs_count}건 로드'
@@ -220,24 +194,12 @@ class MainWindow(QMainWindow):
                 f'v={result["v_radial_kms"]:+.2f} km/s  → 저장됨'
             )
 
-    def _apply_korean_design_theme(self):
-        self.setStyleSheet(APP_STYLESHEET)
-
     def _update_title(self):
         self.setWindowTitle(
             f'HI 21cm 전파망원경  —  {self._proj.name}')
 
 
 def main():
-    from PySide6.QtGui import QSurfaceFormat
-
-    fmt = QSurfaceFormat()
-    fmt.setDepthBufferSize(24)
-    fmt.setStencilBufferSize(8)
-    fmt.setVersion(3, 2)
-    fmt.setProfile(QSurfaceFormat.OpenGLContextProfile.CoreProfile)
-    QSurfaceFormat.setDefaultFormat(fmt)
-
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
     win = MainWindow()

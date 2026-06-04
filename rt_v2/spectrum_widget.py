@@ -201,18 +201,23 @@ class ObsParamPanel(QGroupBox):
         except ValueError:
             return
         obs_time = self._time.text().strip() or \
-                   datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
+               datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
         cfg = self._cfg
+
+        _path = self._bin_path if self._mode.currentIndex() == 1 else None
+        _is_wav = _path is not None and _path.lower().endswith('.wav')
+
         self.run_requested.emit(dict(
             ra_deg=ra, dec_deg=dec, obs_time=obs_time,
             obs_lat=cfg.obs_lat, obs_lon=cfg.obs_lon,
             obs_height_m=cfg.obs_height_m,
-            bin_filepath=self._bin_path if self._mode.currentIndex()==1 else None,
+            bin_filepath=_path if not _is_wav else None,
+            wav_filepath=_path if _is_wav     else None,
             center_freq_hz=cfg.center_freq_hz,
             sample_rate=cfg.sample_rate, nfft=cfg.nfft,
             T_sys=cfg.T_sys, G_sys=cfg.G_sys,
             temp_method=self._method.currentText(),
-        ))
+    ))
 
     def set_running(self, v: bool):
         self._run.setEnabled(not v)

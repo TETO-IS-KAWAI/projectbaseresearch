@@ -33,14 +33,14 @@ from PySide6.QtGui import QFont
 
 import pyqtgraph as pg
 
-from spiral_arm import (
+from old_versions.at_april_second.spiral_arm import (
     analyze_observation, get_reference_spiral_arms,
     SpiralArmResult, VelocityPeak, R_SUN_KPC,
 )
-from data_manager import get_project
+from old_versions.at_april_second.data_manager import get_project
 
 # 색상
-from ui_theme import BG as _BG, FG as _FG, ACC as _ACC
+from old_versions.at_april_second.ui_theme import BG as _BG, FG as _FG, ACC as _ACC
 
 
 _SUN  = '#f2a818'
@@ -213,7 +213,7 @@ class PeakListPanel(QWidget):
         peaks = arm_result.peaks
         self._table.setRowCount(len(peaks))
         for i, p in enumerate(peaks):
-            from spiral_arm import velocity_to_distance
+            from old_versions.at_april_second.spiral_arm import velocity_to_distance
             dist = velocity_to_distance(p.v_lsr_kms, p.l_deg, p.b_deg)
             R    = dist.get('R_kpc', np.nan)
             for j, val in enumerate([

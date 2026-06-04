@@ -156,7 +156,23 @@ def velocity_to_distance(
     sin_l = np.sin(l)
     cos_b = np.cos(b)
 
-    if abs(sin_l) < 0.05 or abs(cos_b) < 0.05:
+    # |b| > 60°: 은하면에서 너무 벗어나 운동학적 거리 모델 적용 불가
+    if abs(cos_b) < 0.5:
+        return dict(d_near_kpc=np.nan, d_far_kpc=np.nan,
+                    R_kpc=np.nan, in_inner=False, valid=False)
+
+    # l ≈ 0° 또는 180° (은하 중심/반중심 방향):
+    # sin(l) ≈ 0 → v_lsr ≈ 0 이어야 정상. v≠0이면 비원형 운동이므로 거리 계산 불가.
+    # 단, |v_lsr| < 20 km/s 이면 태양 근방 팔(local arm)으로 간주해 d = |v|/κ 로 추정.
+    if abs(sin_l) < 0.05:
+        if abs(v_lsr_kms) < 20.0:
+            # 시선 방향 속도 기울기(Oort A 상수 ≈ 15 km/s/kpc) 로 거리 추정
+            A_oort = 15.0
+            d_local = abs(v_lsr_kms) / (2 * A_oort * abs(sin_l) + 1e-6)
+            d_local = min(d_local, 3.0)   # 3 kpc 상한
+            xn, yn = distance_to_xy(d_local, l_deg)
+            return dict(d_near_kpc=float(d_local), d_far_kpc=float(d_local),
+                        R_kpc=float(R_sun), in_inner=True, valid=True)
         return dict(d_near_kpc=np.nan, d_far_kpc=np.nan,
                     R_kpc=np.nan, in_inner=False, valid=False)
 
@@ -225,7 +241,7 @@ def analyze_observation(result: dict) -> SpiralArmResult:
         return arm_result
 
     mask        = result['freqs_corrected'] > 0
-    T_b_spec    = result['T_b_spectrum'][mask]
+    T_b_spec    = result['T_b_spectrum']
     freqs_corr  = result['freqs_corrected'][mask]
 
     raw_peaks = detect_peaks(T_b_spec, freqs_corr)

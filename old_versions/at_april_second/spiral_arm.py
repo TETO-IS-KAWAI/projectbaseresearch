@@ -23,7 +23,7 @@ from typing import Optional
 import numpy as np
 from scipy.signal import find_peaks, peak_prominences
 
-from astro_processing import HI_FREQ_HZ, icrs_to_galactic
+from old_versions.at_april_second.astro_processing import HI_FREQ_HZ, icrs_to_galactic
 
 # ── 은하 모델 상수 (IAU 권고 + Brand & Blitz 1993)
 R_SUN_KPC   = 8.5     # 태양~은하 중심 거리 [kpc]
@@ -288,8 +288,8 @@ def get_reference_spiral_arms() -> dict:
 if __name__ == '__main__':
     import sys
     sys.path.insert(0, '.')
-    from astro_processing import process_observation
-    from config import Config
+    from old_versions.at_april_second.astro_processing import process_observation
+    from old_versions.at_april_second.config import Config
 
     cfg = Config.get()
     print("=== 나선팔 분석 테스트 ===")

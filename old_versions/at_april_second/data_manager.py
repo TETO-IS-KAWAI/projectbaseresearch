@@ -13,8 +13,8 @@ from typing import Optional
 import numpy as np
 from astropy.io import fits
 
-from config import Config
-from astro_processing import build_sky_map, update_sky_map
+from old_versions.at_april_second.config import Config
+from old_versions.at_april_second.astro_processing import build_sky_map, update_sky_map
 
 
 class ProjectManager:
