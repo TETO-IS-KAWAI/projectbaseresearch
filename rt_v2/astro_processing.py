@@ -1282,17 +1282,43 @@ def rayleigh_jeans_temperature(
     freq_hz: np.ndarray,
     G_sys: float = 1.0,
     nfft: int = 2048,
+    T_sys: float = 50.0,
+    baseline_edge_frac: float = 0.10,
 ) -> np.ndarray:
     """
-    레일리-진스 역산으로 각 채널의 밝기온도 계산.
-    T_b(ν) = P(ν) / (G_fft · G_sys) · c² / (2 · ν² · k_B)
+    정규화 기반 상대 밝기온도 계산.
 
-    1.42 GHz는 플랑크 극대(~160 GHz)보다 훨씬 낮아
-    레일리-진스 근사 오차 0.01% 미만으로 매우 정확.
+    SDR 수신기는 전압이 정규화된 ADC count를 출력하므로
+    절대 전력[W]을 알 수 없어 Rayleigh-Jeans 역산으로
+    절대 온도를 구하는 것이 불가능합니다.
+    (이전 수식 T_b = P·c²/(2ν²k_B)는 단위가 맞지 않아
+     수조 K 같은 물리적으로 무의미한 값을 반환했습니다.)
+
+    대신 다음 정규화 수식을 사용합니다:
+
+        T_b(ν) = [P(ν) / P_baseline − 1] × T_sys
+
+    여기서 P_baseline은 스펙트럼 양 가장자리 10%의 중앙값입니다.
+    이 정의에서:
+      - 순수 잡음 채널: T_b ≈ 0 K
+      - HI 방출선 피크: T_b ≈ T_sys × SNR  [수십~수백 K, 물리적으로 타당]
+
+    Parameters
+    ----------
+    power_spectral_density : compute_power_spectrum() 반환 power[mask]
+    freq_hz                : 대응하는 주파수 배열 (현재는 사용 안 함, 호환성 유지)
+    G_sys                  : 시스템 이득 (현재는 사용 안 함, 호환성 유지)
+    nfft                   : FFT 크기 (현재는 사용 안 함, 호환성 유지)
+    T_sys                  : 시스템 잡음 온도 [K] (기본: 50 K)
+    baseline_edge_frac     : 기저선 추정에 사용할 스펙트럼 양쪽 비율 (기본: 10%)
     """
-    G_fft = fft_gain_factor(nfft)
-    P_cal = power_spectral_density / (G_fft * G_sys)
-    return P_cal * _C_MS ** 2 / (2.0 * freq_hz ** 2 * _K_B)
+    P = power_spectral_density
+    n = len(P)
+    edge = max(1, int(n * baseline_edge_frac))
+    P_baseline = np.median(np.concatenate([P[:edge], P[-edge:]]))
+    if P_baseline <= 0:
+        P_baseline = np.median(P[P > 0]) if np.any(P > 0) else 1.0
+    return (P / P_baseline - 1.0) * T_sys
 
 
 def representative_brightness_temp(
@@ -1435,14 +1461,18 @@ def process_observation(
     freqs_corrected = doppler_correct_freqs(freq_offsets, center_freq_hz, v_kms)
 
     # 양수 주파수만 사용해 T_b 환산
+    # T_b(ν) = [P(ν)/P_baseline − 1] × T_sys
+    # 잡음 채널 ≈ 0 K, HI 피크 ≈ T_sys × SNR
     mask         = freqs_corrected > 0
     T_b_spectrum = rayleigh_jeans_temperature(
         power[mask], freqs_corrected[mask],
-        G_sys=G_sys, nfft=nfft,
+        G_sys=G_sys, nfft=nfft, T_sys=T_sys,
     )
 
+    # T_b_spectrum은 이미 잡음 기저선 제거된 값이므로
+    # T_b_raw ≈ 대표 채널 온도, T_sky = T_b_raw (T_sys 이중 차감 방지)
     T_b_raw = representative_brightness_temp(T_b_spectrum, method=temp_method)
-    T_sky   = T_b_raw - T_sys
+    T_sky   = T_b_raw
 
     l_deg, b_deg = icrs_to_galactic(ra_deg, dec_deg)
     return {
