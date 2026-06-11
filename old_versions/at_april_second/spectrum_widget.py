@@ -12,7 +12,7 @@ from typing import Optional
 
 import numpy as np
 
-from PySide6.QtCore import Qt, QThread, Signal, Slot
+from PySide6.QtCore import Qt, QThread, Signal, Slot, QSize
 from PySide6.QtWidgets import (
     QApplication, QWidget, QMainWindow,
     QVBoxLayout, QHBoxLayout, QGridLayout,
@@ -22,19 +22,18 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QFont
 import pyqtgraph as pg
 
-from config import Config
-from astro_processing import process_observation, HI_FREQ_HZ
-from data_manager import get_project
+# PyVista(VTK)와 OpenGL 컨텍스트 충돌 방지
+pg.setConfigOptions(useOpenGL=False)
 
-_BG  = '#1a1a2e'
-_BG2 = '#16213e'
-_BG3 = '#0f3460'
-_FG  = '#e0e0e0'
-_ACC = '#53d8fb'
-_OK  = '#7ed321'
-_ERR = '#d0021b'
-_WARN= '#f5a623'
-_MONO= QFont('Consolas', 9)
+from old_versions.at_april_second.config import Config
+from old_versions.at_april_second.astro_processing import process_observation, HI_FREQ_HZ
+from old_versions.at_april_second.data_manager import get_project
+from old_versions.at_april_second.ui_theme import BG, BG2, BG3, FG, ACC, OK, ERR, WARN
+from ui_icons import icon, ICON_SIZE_TOOLBAR
+
+_BG, _BG2, _BG3, _FG = BG, BG2, BG3, FG
+_ACC, _OK, _ERR, _WARN = ACC, OK, ERR, WARN
+_MONO = QFont('Consolas', 9)
 
 
 # ── 백그라운드 처리 스레드 ────────────────────────────────────
@@ -102,27 +101,88 @@ class ObsParamPanel(QGroupBox):
         self._method = QComboBox(); self._method.addItems(['median','mean','peak'])
         g.addWidget(lbl('T_b 대푯값'), 5,0); g.addWidget(self._method, 5,1)
 
-        self._run = QPushButton('▶  분석 실행'); self._run.setFixedHeight(36)
+        self._run = QPushButton('▶  분석 실행')
+        self._run.setFixedHeight(36)
+        _ric = icon('run')
+        if not _ric.isNull():
+            self._run.setIcon(_ric)
+            self._run.setIconSize(QSize(ICON_SIZE_TOOLBAR, ICON_SIZE_TOOLBAR))
         self._run.clicked.connect(self._emit)
-        g.addWidget(self._run, 6,0,1,2)
+        g.addWidget(self._run, 6, 0, 1, 2)
 
     def _style(self):
         base = f'''
-            QGroupBox{{color:{_ACC};border:1px solid {_BG3};border-radius:4px;
-                       margin-top:8px;padding-top:4px;}}
-            QGroupBox::title{{subcontrol-origin:margin;left:8px;}}
-            QLineEdit{{background:{_BG2};color:{_FG};border:1px solid {_BG3};
-                       border-radius:3px;padding:3px 6px;}}
-            QComboBox{{background:{_BG2};color:{_FG};border:1px solid {_BG3};
-                       border-radius:3px;padding:3px 6px;}}
-            QComboBox QAbstractItemView{{background:{_BG2};color:{_FG};}}
-            QPushButton{{background:{_BG3};color:{_FG};border:none;
-                         border-radius:3px;padding:4px 10px;}}
-            QPushButton:hover{{background:{_ACC};color:{_BG};}}'''
+            QGroupBox{{
+                color: {_FG};
+                border: 1px solid {_BG3};
+                border-radius: 12px;
+                margin-top: 8px;
+                padding-top: 12px;
+                background-color: {_BG2};
+            }}
+            QGroupBox::title{{
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 6px;
+                color: {_FG};
+                font-weight: 500;
+            }}
+            QLineEdit{{
+                background-color: {_BG};
+                color: {_FG};
+                border: 1.5px solid {_BG3};
+                border-radius: 6px;
+                padding: 8px 12px;
+                font-size: 13px;
+            }}
+            QLineEdit:focus{{
+                border: 1.5px solid {_ACC};
+                background-color: {_BG2};
+            }}
+            QComboBox{{
+                background-color: {_BG};
+                color: {_FG};
+                border: 1.5px solid {_BG3};
+                border-radius: 6px;
+                padding: 6px 12px;
+            }}
+            QComboBox:focus{{
+                border: 1.5px solid {_ACC};
+            }}
+            QComboBox QAbstractItemView{{
+                background-color: {_BG2};
+                color: {_FG};
+                border: 1px solid {_BG3};
+            }}
+            QPushButton{{
+                background-color: {_BG3};
+                color: {_FG};
+                border: none;
+                border-radius: 6px;
+                padding: 8px 16px;
+                font-weight: 600;
+            }}
+            QPushButton:hover{{
+                background-color: {_ACC};
+                color: {_BG};
+            }}
+            QPushButton:pressed{{
+                background-color: {_OK};
+            }}
+        '''
         self.setStyleSheet(base)
         self._run.setStyleSheet(
-            f'QPushButton{{background:{_ACC};color:{_BG};font-weight:bold;}}'
-            f'QPushButton:hover{{background:{_FG};color:{_BG};}}'
+            f'QPushButton{{'
+            f'background-color: {_ACC};'
+            f'color: {_BG};'
+            f'font-weight: bold;'
+            f'padding: 10px 20px;'
+            f'font-size: 14px;'
+            f'}}'
+            f'QPushButton:hover{{'
+            f'background-color: {_OK};'
+            f'color: {_BG2};'
+            f'}}'
         )
 
     def _pick(self):
@@ -178,22 +238,52 @@ class ResultPanel(QGroupBox):
             return l
 
         self._v   = val(); self._ts = val(); self._tr = val()
+        self._lb  = val(); self._vt = val(); self._dist = val()
         self._st  = QLabel('대기 중'); self._st.setFont(_MONO)
         self._st.setStyleSheet(f'color:{_WARN}')
 
         g.addWidget(key('v_LSR'),   0,0); g.addWidget(self._v,  0,1); g.addWidget(key('[km/s]'),0,2)
         g.addWidget(key('T_sky'),   1,0); g.addWidget(self._ts, 1,1); g.addWidget(key('[K]'),   1,2)
         g.addWidget(key('T_b_raw'), 2,0); g.addWidget(self._tr, 2,1); g.addWidget(key('[K]'),   2,2)
-        g.addWidget(self._st, 3,0,1,3)
+        g.addWidget(key('(l, b)'),  3,0); g.addWidget(self._lb, 3,1,1,2)
+        g.addWidget(key('v_tan'),   4,0); g.addWidget(self._vt, 4,1); g.addWidget(key('[km/s]'),4,2)
+        g.addWidget(key('d_kin'),   5,0); g.addWidget(self._dist,5,1); g.addWidget(key('[kpc]'),5,2)
+        g.addWidget(self._st, 6,0,1,3)
 
         self.setStyleSheet(
-            f'QGroupBox{{color:{_ACC};border:1px solid {_BG3};border-radius:4px;margin-top:8px;}}'
-            f'QGroupBox::title{{subcontrol-origin:margin;left:8px;}}')
+            f'QGroupBox{{'
+            f'color: {_FG};'
+            f'border: 1px solid {_BG3};'
+            f'border-radius: 12px;'
+            f'margin-top: 8px;'
+            f'padding-top: 12px;'
+            f'background-color: {_BG2};'
+            f'}}'
+            f'QGroupBox::title{{'
+            f'subcontrol-origin: margin;'
+            f'left: 10px;'
+            f'padding: 0 6px;'
+            f'color: {_FG};'
+            f'font-weight: 500;'
+            f'}}')
 
     def update(self, r: dict):
+        from old_versions.at_april_second.astro_processing import galactocentric_velocity
         self._v.setText(f'{r["v_radial_kms"]:+.3f}')
         self._ts.setText(f'{r["T_brightness"]:.4f}')
         self._tr.setText(f'{r["T_b_raw"]:.4f}')
+        l = r.get('l_deg', float('nan'))
+        b = r.get('b_deg', float('nan'))
+        self._lb.setText(f'l={l:.1f}°  b={b:.1f}°')
+        try:
+            gc = galactocentric_velocity(r['ra'], r['dec'], r['v_radial_kms'])
+            self._vt.setText(f'{gc["v_tangent_kms"]:+.2f}')
+            dn = gc['kinematic_distance_near_kpc']
+            df = gc['kinematic_distance_far_kpc']
+            self._dist.setText(
+                f'{dn:.2f} / {df:.2f}' if (dn == dn and df == df) else '—')
+        except Exception:
+            self._vt.setText('—'); self._dist.setText('—')
         ok = r['success']
         self._st.setText('성공 ✓' if ok else '실패')
         self._st.setStyleSheet(f'color:{_OK if ok else _ERR}')
@@ -210,7 +300,7 @@ class ResultPanel(QGroupBox):
 class SpectrumPlotArea(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        pg.setConfigOption('background', _BG)
+        pg.setConfigOption('background', _BG2)
         pg.setConfigOption('foreground', _FG)
         lay = QVBoxLayout(self); lay.setContentsMargins(0,0,0,0); lay.setSpacing(4)
 
@@ -243,8 +333,20 @@ class SpectrumPlotArea(QWidget):
     def update_plots(self, r: dict):
         mask = r['freqs_corrected'] > 0
         fg   = r['freqs_corrected'][mask] / 1e9
-        self._pc.setData(fg, 10*np.log10(r['power'][mask]+1e-30))
-        self._tc.setData(fg, r['T_b_spectrum'])
+        power_db = 10*np.log10(r['power'][mask]+1e-30)
+        t_b_spec = r['T_b_spectrum']
+        
+        valid_mask = np.isfinite(fg) & np.isfinite(power_db) & np.isfinite(t_b_spec)
+        if np.any(valid_mask):
+            fg_valid = fg[valid_mask]
+            power_valid = power_db[valid_mask]
+            t_b_valid = t_b_spec[valid_mask]
+            self._pc.setData(fg_valid, power_valid)
+            self._tc.setData(fg_valid, t_b_valid)
+        else:
+            self._pc.setData([], [])
+            self._tc.setData([], [])
+        
         self._tsl.setValue(r['T_brightness'])
         self._trl.setValue(r['T_b_raw'])
         self._tsl.label.setFormat(f'T_sky = {r["T_brightness"]:.3f} K')
@@ -280,7 +382,7 @@ class SpectrumWidget(QWidget):
         lay.addWidget(self._plots, 1)
 
         self._param.run_requested.connect(self._on_run)
-        self.setStyleSheet(f'background:{_BG};color:{_FG}')
+        self.setStyleSheet(f'background:{_BG};color:{_FG};')
 
     @Slot(dict)
     def _on_run(self, params: dict):

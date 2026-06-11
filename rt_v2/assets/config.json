@@ -1,0 +1,20 @@
+{
+  "obs_name": "학교",
+  "obs_lat": 36.522764,
+  "obs_lon": 127.248878,
+  "obs_height_m": 0.0,
+  "center_freq_hz": 1420405751.77,
+  "sample_rate": 2500000.0,
+  "nfft": 2048,
+  "T_sys": 50.0,
+  "G_sys": 1.0,
+  "nside": 32,
+  "data_dir": "",
+  "output_dir": "",
+  "temp_method": "peak",
+  "dark_mode": true,
+  "fg_T0_k": 2.0,
+  "fg_beta": 2.7,
+  "fg_b_min_deg": 3.0,
+  "fg_scale": 1.0
+}

@@ -28,9 +28,9 @@ from PySide6.QtWidgets import (
 import pyvista as pv
 from pyvistaqt import QtInteractor
 
-from config import Config
-from astro_processing import get_pixel_coords, _hi_temperature_model
-from data_manager import get_project
+from old_versions.pyvista_tests.config import Config
+from old_versions.pyvista_tests.astro_processing import get_pixel_coords, _hi_temperature_model
+from old_versions.pyvista_tests.data_manager import get_project
 
 
 # ── 더미 지도 스레드 ────────────────────────────────────────
