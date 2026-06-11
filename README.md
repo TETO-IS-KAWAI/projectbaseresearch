@@ -5,4 +5,4 @@
 
 난개발 중인데 현재 rt_v2 폴더 주로 사용
 
-나머지 폴더 사장 old_versions에 묶어둠 (현재 pre-beta 가지)
+나머지 폴더 사장 old_versions에 묶어둠 (현재 pre-beta 가지와 claude 가지에서 main으로 전부 통합함)
