@@ -27,7 +27,7 @@ from PySide6.QtCore import Qt, QThread, Signal, Slot
 from PySide6.QtWidgets import (
     QApplication, QWidget, QMainWindow,
     QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QCheckBox, QGroupBox, QSplitter,
+    QCheckBox, QGroupBox, QSplitter, QTableWidgetItem,
 )
 from PySide6.QtGui import QFont
 
@@ -224,7 +224,7 @@ class PeakListPanel(QWidget):
                 f'{p.d_far_kpc:.2f}'  if np.isfinite(p.d_far_kpc)  else '—',
                 f'{R:.2f}'            if np.isfinite(R)             else '—',
             ]):
-                self._table.setItem(i, j, pg.TableWidgetItem(val))
+                self._table.setItem(i, j, QTableWidgetItem(val))
 
     def clear(self):
         self._table.setRowCount(0)

@@ -160,6 +160,12 @@ class SkyViewerWidget(QWidget):
         if mapper is not None:
             mapper.SetScalarRange(vmin, vmax)
             mapper.Update()
+        # scalar bar tick 범위 갱신 (PyVista API)
+        try:
+            self._plotter.update_scalar_bar_range((vmin, vmax), name='T_b')
+        except Exception:
+            pass
+        # 타이틀도 갱신
         try:
             sb = self._plotter.scalar_bars.get('T_b')
             if sb is not None:
