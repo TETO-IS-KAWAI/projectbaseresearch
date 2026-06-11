@@ -27,7 +27,7 @@ from PySide6.QtCore import Qt, QThread, Signal, Slot
 from PySide6.QtWidgets import (
     QApplication, QWidget, QMainWindow,
     QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QCheckBox, QGroupBox, QSplitter, QTableWidgetItem,
+    QCheckBox, QGroupBox, QSplitter, QTableWidget, QTableWidgetItem,
 )
 from PySide6.QtGui import QFont
 
@@ -199,7 +199,7 @@ class PeakListPanel(QWidget):
         title.setStyleSheet(f'color:{_ACC}; font-weight:bold; font-size:12px;')
         lay.addWidget(title)
 
-        self._table = pg.TableWidget()
+        self._table = QTableWidget()
         self._table.setColumnCount(6)
         self._table.setHorizontalHeaderLabels(
             ['l [°]', 'v_LSR [km/s]', 'T_b [K]', 'd_near [kpc]', 'd_far [kpc]', 'R [kpc]'])
