@@ -78,57 +78,80 @@ def freq_to_vlsr(freq_hz: np.ndarray, freq_center: float = HI_FREQ_HZ) -> np.nda
 def detect_peaks(
     T_b_spectrum: np.ndarray,
     freqs_corrected: np.ndarray,
-    min_prominence_K: float = 3.0,
-    min_height_K: float = 5.0,
-    min_distance_bins: int = 5,
+    noise_sigma: float = 4.0,
+    min_height_K: float = 3.0,
+    min_distance_bins: int = 10,
+    min_width_bins: int = 3,
+    noise_v_kms: float = 150.0,
+    smooth_bins: int = 5,
+    max_peaks: int = 10,
 ) -> list[dict]:
     """
-    T_b 스펙트럼에서 유의미한 속도 피크 감지.
+    T_b 스펙트럼에서 유의미한 HI 속도 피크 감지 (MAD 기반 robust 잡음 추정).
 
     Parameters
     ----------
-    min_prominence_K  : 최소 돌출 높이 [K] — 잡음 피크 제거
-    min_height_K      : 최소 절대 높이 [K]
+    noise_sigma       : 잡음 σ 기준 임계값 배수 (기본 3σ)
+    min_height_K      : 절대 최소 높이 하한 [K]
     min_distance_bins : 피크 간 최소 채널 수
-
-    Returns
-    -------
-    list of dict: {v_lsr_kms, T_b_peak, freq_hz, bin_idx}
+    min_width_bins    : 최소 피크 폭 [채널 수]  — 단일 채널 잡음 스파이크 제거
+    noise_v_kms       : (현재 미사용, 호환성 유지) 오프라인 영역 하한 [km/s]
+    smooth_bins       : 사전 평활화 창 크기 [채널 수] (0이면 생략)
+    max_peaks         : 반환할 최대 피크 수 (T_b 높은 순)
     """
-    # HI 21cm 범위만 사용 (±200 km/s)
-    v_arr  = freq_to_vlsr(freqs_corrected)
+    from scipy.ndimage import uniform_filter1d
+
+    v_arr    = freq_to_vlsr(freqs_corrected)
     in_range = np.abs(v_arr) < 250
     if not np.any(in_range):
         return []
 
-    T_use   = T_b_spectrum[in_range]
-    f_use   = freqs_corrected[in_range]
-    v_use   = v_arr[in_range]
+    T_use = T_b_spectrum[in_range]
+    f_use = freqs_corrected[in_range]
+    v_use = v_arr[in_range]
 
-    # NaN → 최솟값으로 채움
-    T_min = np.nanmin(T_use)
-    T_clean = np.where(np.isfinite(T_use), T_use, T_min if np.isfinite(T_min) else 0.0)
+    # NaN → 중앙값으로 채움
+    finite_mask = np.isfinite(T_use)
+    T_med   = float(np.nanmedian(T_use)) if finite_mask.any() else 0.0
+    T_clean = np.where(finite_mask, T_use, T_med)
 
-    peak_idx, props = find_peaks(
+    # ── Robust 잡음 추정: MAD (Median Absolute Deviation)
+    # 피크나 기저선 왜곡에 영향받지 않는 전체-스펙트럼 robust σ 추정
+    # σ_robust = MAD / 0.6745  (정규분포 가정 시 σ에 대한 불편 추정량)
+    median_T   = float(np.median(T_clean))
+    mad        = float(np.median(np.abs(T_clean - median_T)))
+    noise_std  = mad / 0.6745 if mad > 0 else float(np.std(T_clean))
+
+    # 실효 임계값: 중앙값 기준 N·σ 위
+    threshold = max(min_height_K, median_T + noise_sigma * noise_std)
+    prom_min  = max(min_height_K * 0.5, noise_sigma * noise_std)
+
+    # ── 피크 탐색: 원본 T_clean 기준 (평활화 없음)
+    # width 조건이 단일-채널 스파이크를 충분히 걸러냄
+    peak_idx, _ = find_peaks(
         T_clean,
-        height=min_height_K,
+        height=threshold,
         distance=min_distance_bins,
+        width=min_width_bins,
     )
     if len(peak_idx) == 0:
         return []
 
     proms, _, _ = peak_prominences(T_clean, peak_idx)
-    valid = proms >= min_prominence_K
+    valid    = proms >= prom_min
     peak_idx = peak_idx[valid]
+    if len(peak_idx) == 0:
+        return []
 
-    results = []
-    for i in peak_idx:
-        results.append({
-            'v_lsr_kms': float(v_use[i]),
-            'T_b_peak':  float(T_clean[i]),
-            'freq_hz':   float(f_use[i]),
-        })
-    return sorted(results, key=lambda x: x['T_b_peak'], reverse=True)
+    # T_b 내림차순 정렬 후 상위 max_peaks 개만 반환
+    results = sorted(
+        [{'v_lsr_kms': float(v_use[i]),
+          'T_b_peak':  float(T_clean[i]),
+          'freq_hz':   float(f_use[i])}
+         for i in peak_idx],
+        key=lambda x: x['T_b_peak'], reverse=True,
+    )
+    return results[:max_peaks]
 
 
 # ═══════════════════════════════════════════════════════════
@@ -170,7 +193,6 @@ def velocity_to_distance(
             A_oort = 15.0
             d_local = abs(v_lsr_kms) / (2 * A_oort * abs(sin_l) + 1e-6)
             d_local = min(d_local, 3.0)   # 3 kpc 상한
-            xn, yn = distance_to_xy(d_local, l_deg)
             return dict(d_near_kpc=float(d_local), d_far_kpc=float(d_local),
                         R_kpc=float(R_sun), in_inner=True, valid=True)
         return dict(d_near_kpc=np.nan, d_far_kpc=np.nan,
@@ -287,8 +309,8 @@ def get_reference_spiral_arms() -> dict:
         theta = np.linspace(np.radians(l_start), np.radians(l_end), n)
         r     = r0 * np.exp(np.tan(pitch) * (theta - theta[0]))
         # 조감도 XY (태양 원점, Y=은하 중심 방향)
-        x = r * np.sin(theta) - R_SUN_KPC * np.sin(0)
-        y = r * np.cos(theta) - R_SUN_KPC
+        x = r * np.sin(theta)
+        y = R_SUN_KPC - r * np.cos(theta)
         return x, y
 
     arms = {

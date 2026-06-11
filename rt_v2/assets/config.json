@@ -11,7 +11,7 @@
   "nside": 32,
   "data_dir": "",
   "output_dir": "",
-  "temp_method": "median",
+  "temp_method": "peak",
   "dark_mode": true,
   "fg_T0_k": 2.0,
   "fg_beta": 2.7,

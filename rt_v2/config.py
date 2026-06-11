@@ -70,7 +70,7 @@ class Config:
     output_dir: str = ''    # 결과 저장 폴더         (빈 문자열 = 앱 폴더)
 
     # ── 표시 설정 ────────────────────────────────────────────
-    temp_method:   str  = 'median'   # 밝기온도 대푯값 방식: median / mean / peak
+    temp_method:   str  = 'peak'     # 밝기온도 대푯값 방식: peak / integral / mean / median
     dark_mode:     bool = True       # UI 테마 플래그 (향후 확장용)
 
     # ── 은하 연속체 전경 (해석식, healpy 미사용) ───────────────

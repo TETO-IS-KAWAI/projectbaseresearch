@@ -98,7 +98,7 @@ class ObsParamPanel(QGroupBox):
         fl.addWidget(self._file_lbl, 1); fl.addWidget(pick)
         g.addWidget(self._file_row, 4,0,1,2); self._file_row.setVisible(False)
 
-        self._method = QComboBox(); self._method.addItems(['median','mean','peak'])
+        self._method = QComboBox(); self._method.addItems(['peak','integral','mean','median'])
         g.addWidget(lbl('T_b 대푯값'), 5,0); g.addWidget(self._method, 5,1)
 
         self._run = QPushButton('▶  분석 실행')
