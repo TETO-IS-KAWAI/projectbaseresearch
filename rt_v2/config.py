@@ -66,8 +66,9 @@ class Config:
                              # nside=64  → 49152 픽셀, ~0.9° 해상도
 
     # ── 파일 경로 ────────────────────────────────────────────
-    data_dir:   str = ''    # .bin 파일이 있는 폴더  (빈 문자열 = 미설정)
-    output_dir: str = ''    # 결과 저장 폴더         (빈 문자열 = 앱 폴더)
+    data_dir:     str = ''  # .bin/.wav 파일이 있는 폴더  (빈 문자열 = 미설정)
+    output_dir:   str = ''  # 결과 저장 폴더             (빈 문자열 = 앱 폴더)
+    projects_dir: str = ''  # 관측 프로젝트(.json) 폴더   (빈 문자열 = 앱 projects/)
 
     # ── 표시 설정 ────────────────────────────────────────────
     temp_method:   str  = 'peak'     # 밝기온도 대푯값 방식: peak / integral / mean / median
@@ -158,6 +159,13 @@ class Config:
         return Path(self.output_dir) if self.output_dir else _HERE
 
     @property
+    def projects_dir_path(self) -> Path:
+        """프로젝트(.json) 저장/열기 폴더. 미설정이면 앱 내 projects/ (없으면 생성)."""
+        p = Path(self.projects_dir) if self.projects_dir else (_HERE / 'projects')
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    @property
     def npix(self) -> int:
         """HEALPix 총 픽셀 수 (= 12 * nside²)."""
         return 12 * self.nside ** 2
@@ -198,6 +206,12 @@ class Config:
 
 if __name__ == '__main__':
     import shutil
+    import tempfile
+
+    # 셀프 테스트가 실제 assets/(아이콘·설정)를 건드리지 않도록 임시 폴더로 격리.
+    _TMP_DIR     = Path(tempfile.mkdtemp())
+    _ASSETS_DIR  = _TMP_DIR / 'assets'
+    _CONFIG_FILE = _ASSETS_DIR / 'config.json'
 
     print("=" * 50)
     print("Config 모듈 테스트")
@@ -231,7 +245,7 @@ if __name__ == '__main__':
     print(f"  freq_resolution_hz = {cfg2.freq_resolution_hz:.0f} Hz")
     print(f"  velocity_res       = {cfg2.velocity_resolution_kms:.2f} km/s")
 
-    # 5. 테스트 파일 정리
-    shutil.rmtree(_ASSETS_DIR, ignore_errors=True)
+    # 5. 테스트 파일 정리 (임시 폴더만 삭제 — 실제 assets/ 는 건드리지 않음)
+    shutil.rmtree(_TMP_DIR, ignore_errors=True)
     Config.reset()
     print("\n완료!")

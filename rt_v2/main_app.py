@@ -19,6 +19,14 @@ from spectrum_widget import SpectrumWidget
 from sky_viewer import SkyViewerWidget
 from galactic_map import GalacticMapWidget
 
+APP_NAME    = 'HI 21cm 전파망원경 소프트웨어'
+APP_VERSION = '1.0'
+
+# 크레딧
+CREDIT_SCHOOL = 'SASA · 10기'
+CREDIT_TEAM   = '팀 RWA'
+CREDIT_DEVS   = 'TETO-IS-KAWAI'
+
 _TAB_STYLE = f"""
 QTabWidget::pane {{
     border: 1px solid {BG3};
@@ -52,7 +60,7 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._build_menu()
         self._connect()
-        self.setWindowTitle('HI 21cm 전파망원경 소프트웨어')
+        self.setWindowTitle(APP_NAME)
         self.setWindowIcon(icon('app'))
         self.resize(1700, 950)
         self.setStyleSheet(APP_STYLESHEET)
@@ -119,6 +127,12 @@ class MainWindow(QMainWindow):
         a2.triggered.connect(lambda: self._tabs.setCurrentIndex(1))
         vm.addAction(a1); vm.addAction(a2)
 
+        # ── 도움말
+        hm = mb.addMenu('도움말')
+        about = QAction(icon('app'), '정보', self)
+        about.triggered.connect(self._about)
+        hm.addAction(about)
+
     def _connect(self):
         self._spectrum.obs_finished.connect(self._viewer.update_from_obs)
         self._spectrum.obs_finished.connect(self._galmap.update_from_obs)
@@ -129,8 +143,9 @@ class MainWindow(QMainWindow):
     def _new_project(self):
         name, ok = QInputDialog.getText(self, '새 프로젝트', '프로젝트 이름:')
         if not ok or not name.strip(): return
+        default = str(self._cfg.projects_dir_path / (name.strip() + '.json'))
         path, _ = QFileDialog.getSaveFileName(
-            self, '저장 위치', name.strip() + '.json', 'RT 프로젝트 (*.json)')
+            self, '저장 위치', default, 'RT 프로젝트 (*.json)')
         if not path: return
         self._proj.create(path, name=name.strip())
         self._update_title()
@@ -140,7 +155,8 @@ class MainWindow(QMainWindow):
 
     def _open_project(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, '프로젝트 열기', '', 'RT 프로젝트 (*.json);;모든 파일 (*)')
+            self, '프로젝트 열기', str(self._cfg.projects_dir_path),
+            'RT 프로젝트 (*.json);;모든 파일 (*)')
         if not path: return
         try:
             self._proj.open(path)
@@ -198,9 +214,37 @@ class MainWindow(QMainWindow):
     def _update_title(self):
         self.setWindowTitle(f'HI 21cm 전파망원경  —  {self._proj.name}')
 
+    def _about(self):
+        box = QMessageBox(self)
+        box.setWindowTitle('정보')
+        box.setIconPixmap(icon('app').pixmap(64, 64))
+        box.setTextFormat(Qt.RichText)
+        box.setText(
+            f"<h3 style='margin:0'>{APP_NAME}</h3>"
+            f"<p style='color:#666;margin:2px 0 10px'>v{APP_VERSION}</p>"
+            "<p>SDR로 수신한 HI 21cm 수소선을 처리하여 도플러 보정·밝기온도"
+            "<br>환산을 거쳐 우리 은하 나선팔을 시각화하는 소프트웨어입니다.</p>"
+            "<hr>"
+            f"<p><b>{CREDIT_SCHOOL} · {CREDIT_TEAM}</b><br>"
+            f"코드 작성 &nbsp; {CREDIT_DEVS}</p>"
+            "<p style='color:#666'>© 2026 Team RWA · MIT License</p>"
+            "<p style='color:#888;font-size:11px'>Built with "
+            "PySide6 · pyqtgraph · PyVista · Astropy · astropy-healpix · NumPy · SciPy</p>"
+        )
+        box.exec()
+
 
 def main():
     from PySide6.QtGui import QSurfaceFormat
+
+    # Windows 작업표시줄에서 python.exe 가 아닌 앱 고유 아이콘(app.png)으로 표시되도록
+    if sys.platform == 'win32':
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                'rwa.hi21cm.telescope')
+        except Exception:
+            pass
 
     fmt = QSurfaceFormat()
     fmt.setDepthBufferSize(24)
