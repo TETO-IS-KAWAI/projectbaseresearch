@@ -8,8 +8,9 @@ astro_processing.py
   - 레일리-진스 공식으로 밝기온도 환산
   - HEALPix 하늘 지도 생성 및 시각화
 
-의존 라이브러리: numpy, astropy, astropy-healpix, matplotlib
+의존 라이브러리: numpy, astropy, astropy-healpix
 HEALPix 연산은 astropy-healpix (BSD) 만 사용합니다.
+matplotlib 은 진단용 plot 함수에서만 지연 import 합니다 (GUI 앱은 불필요).
 """
 
 import warnings
@@ -21,8 +22,6 @@ import astropy.units as u
 import astropy.constants as const
 from astropy_healpix import HEALPix
 from astropy.utils import iers
-
-import matplotlib.pyplot as plt
 
 # 오프라인 환경에서 IERS 자동 다운로드 경고 억제
 iers.conf.auto_download = False
@@ -940,6 +939,8 @@ def plot_sky_map(
     ----
     pcm : pcolormesh 객체 (colorbar 연결용)
     """
+    import matplotlib.pyplot as plt   # 진단용 — GUI 앱은 불필요
+
     if nside is None:
         nside = int(np.round(np.sqrt(len(sky_map) / 12)))
 
@@ -997,6 +998,8 @@ def plot_spectrum_sample(result: dict, save_path: str = None):
     """
     단일 관측의 보정된 스펙트럼과 밝기온도를 시각화.
     """
+    import matplotlib.pyplot as plt   # 진단용 — GUI 앱은 불필요
+
     fig, axes = plt.subplots(2, 1, figsize=(10, 7))
 
     mask     = result['freqs_corrected'] > 0

@@ -1,8 +1,14 @@
-# 선택 설치 — 실패해도 메인 앱은 동작함
-#
-# mocpy: MOC FITS보내기 (커버리지 표시는 mocpy 없이도 HEALPix 마스크로 동작)
+# 선택 설치 — 없어도 메인 앱은 정상 동작함
 #
 #   pip install -r requirements.txt
 #   pip install -r requirements-optional.txt
+#
+# mocpy   : MOC FITS 내보내기 (커버리지 '표시'는 mocpy 없이 HEALPix 마스크로 동작)
+# matplotlib : astro_processing.py 의 진단용 plot 함수 전용 (GUI 앱은 불필요)
+# pywin32 : scripts/setup_icon.py 로 바탕화면 바로가기 생성 (Windows 전용)
+# pillow  : scripts/setup_icon.py 가 app.png → app.ico 자동 변환할 때 사용
 
 mocpy>=0.14
+matplotlib>=3.5
+pywin32>=305 ; sys_platform == "win32"
+pillow>=9.0
