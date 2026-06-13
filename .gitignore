@@ -4,3 +4,8 @@ config.json
 *.json
 !config.json
 *.fits
+
+# PyInstaller 빌드 산출물
+build/
+dist/
+*.lnk

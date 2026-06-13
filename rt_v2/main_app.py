@@ -16,8 +16,16 @@ from ui_theme import APP_STYLESHEET, BG, FG, BG3
 from ui_icons import icon
 from data_manager import get_project
 from spectrum_widget import SpectrumWidget
-from sky_viewer import SkyViewerWidget
 from galactic_map import GalacticMapWidget
+
+# 3D 전천 히트맵(VTK/pyvista)은 선택 기능 — 경량(Lite) 빌드에선 pyvista 가
+# 번들되지 않으므로 import 가 실패한다. 그 경우 3D 탭을 자동으로 건너뛴다.
+try:
+    from sky_viewer import SkyViewerWidget
+    _HAS_3D = True
+except Exception:
+    SkyViewerWidget = None
+    _HAS_3D = False
 
 APP_NAME    = 'HI 21cm 전파망원경 소프트웨어'
 APP_VERSION = '1.0'
@@ -68,16 +76,17 @@ class MainWindow(QMainWindow):
     # ── UI ──────────────────────────────────────────────────
 
     def _build_ui(self):
-        # VTK(OpenGL) 먼저 초기화한 뒤 pyqtgraph 위젯 생성 (컨텍스트 충돌 방지)
-        self._viewer  = SkyViewerWidget()
+        # 3D 뷰어(있으면) → VTK(OpenGL) 먼저 초기화한 뒤 pyqtgraph 위젯 생성 (컨텍스트 충돌 방지)
+        self._viewer = SkyViewerWidget() if _HAS_3D else None
         self._galmap  = GalacticMapWidget()
         self._spectrum = SpectrumWidget()
 
         # 오른쪽: 탭
         self._tabs = QTabWidget()
         self._tabs.setStyleSheet(_TAB_STYLE)
-        self._tabs.addTab(self._viewer,  '🌌  3D 전천 히트맵')
-        self._tabs.addTab(self._galmap,  '🌀  은하 조감도 / 나선팔')
+        if self._viewer is not None:
+            self._tabs.addTab(self._viewer, '🌌  3D 전천 히트맵')
+        self._galmap_index = self._tabs.addTab(self._galmap, '🌀  은하 조감도 / 나선팔')
 
         splitter = QSplitter(Qt.Horizontal)
         splitter.addWidget(self._spectrum)
@@ -121,11 +130,13 @@ class MainWindow(QMainWindow):
 
         # ── 보기
         vm = mb.addMenu('보기')
-        a1 = QAction('3D 전천 히트맵', self)
-        a1.triggered.connect(lambda: self._tabs.setCurrentIndex(0))
+        if self._viewer is not None:
+            a1 = QAction('3D 전천 히트맵', self)
+            a1.triggered.connect(lambda: self._tabs.setCurrentIndex(0))
+            vm.addAction(a1)
         a2 = QAction('은하 조감도 / 나선팔', self)
-        a2.triggered.connect(lambda: self._tabs.setCurrentIndex(1))
-        vm.addAction(a1); vm.addAction(a2)
+        a2.triggered.connect(lambda: self._tabs.setCurrentIndex(self._galmap_index))
+        vm.addAction(a2)
 
         # ── 도움말
         hm = mb.addMenu('도움말')
@@ -134,7 +145,8 @@ class MainWindow(QMainWindow):
         hm.addAction(about)
 
     def _connect(self):
-        self._spectrum.obs_finished.connect(self._viewer.update_from_obs)
+        if self._viewer is not None:
+            self._spectrum.obs_finished.connect(self._viewer.update_from_obs)
         self._spectrum.obs_finished.connect(self._galmap.update_from_obs)
         self._spectrum.obs_finished.connect(self._on_obs_done)
 
@@ -149,7 +161,8 @@ class MainWindow(QMainWindow):
         if not path: return
         self._proj.create(path, name=name.strip())
         self._update_title()
-        self._viewer.refresh_from_project()
+        if self._viewer is not None:
+            self._viewer.refresh_from_project()
         self._galmap.refresh_from_project()
         self._status_lbl.setText(f'새 프로젝트: {Path(path).name}')
 
@@ -163,7 +176,8 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, '오류', f'열기 실패:\n{e}'); return
         self._update_title()
-        self._viewer.refresh_from_project()
+        if self._viewer is not None:
+            self._viewer.refresh_from_project()
         self._galmap.refresh_from_project()
         self._status_lbl.setText(
             f'{Path(path).name}  |  관측 {self._proj.obs_count}건 로드')
