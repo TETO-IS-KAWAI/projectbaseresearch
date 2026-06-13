@@ -304,10 +304,16 @@ def get_reference_spiral_arms() -> dict:
     반환: {팔 이름: {'x': array, 'y': array, 'color': str}}
     """
     def log_spiral(r0, pitch_deg, l_start, l_end, n=200):
-        """로그 나선: r = r0 * exp(tan(pitch) * (θ - θ0))"""
+        """로그 나선 (후행팔 trailing): r = r0 * exp(-tan(pitch) * (θ - θ0)).
+
+        θ 는 '회전 방향(반시계)으로 증가하는 은하중심 방위각'.
+        우리 은하 나선팔은 후행팔이므로, 회전 방향(θ 증가)으로 갈수록 반경이
+        '감소'해야 한다. 지수 부호를 +로 두면 선행팔(leading)이 되어 실제와
+        반대로 감긴다 (Hou & Han 2014).
+        """
         pitch = np.radians(pitch_deg)
         theta = np.linspace(np.radians(l_start), np.radians(l_end), n)
-        r     = r0 * np.exp(np.tan(pitch) * (theta - theta[0]))
+        r     = r0 * np.exp(-np.tan(pitch) * (theta - theta[0]))
         # 조감도 XY (태양 원점, Y=은하 중심 방향)
         x = r * np.sin(theta)
         y = R_SUN_KPC - r * np.cos(theta)
