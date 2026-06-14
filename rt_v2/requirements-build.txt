@@ -1,0 +1,10 @@
+# 앱(.exe) 빌드용 — 배포 대상 PC 에는 불필요, 빌드하는 PC 에서만 설치.
+#
+#   pip install -r requirements.txt
+#   pip install -r requirements-build.txt
+#   packaging\build.bat
+#
+# 산출물: dist\RWA_HI21cm\RWA_HI21cm.exe (폴더 통째로 배포)
+
+pyinstaller>=6.0
+pillow>=9.0      # app.png -> app.ico 변환 (scripts/setup_icon.py 와 공용)

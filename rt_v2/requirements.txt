@@ -7,3 +7,4 @@ pyqtgraph>=0.13
 PyOpenGL>=3.1
 pyvista>=0.43
 pyvistaqt>=0.11
+matplotlib>=3.5      # pyvista 가 colormaps 용으로 필수 (+astro_processing 진단 plot)

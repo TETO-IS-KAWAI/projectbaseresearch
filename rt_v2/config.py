@@ -20,6 +20,8 @@ config.py
 from __future__ import annotations
 
 import json
+import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, ClassVar
@@ -29,9 +31,35 @@ from typing import Optional, ClassVar
 # 경로
 # ───────────────────────────────────────────────────────────
 
-_HERE       = Path(__file__).parent          # radio_telescope/
-_ASSETS_DIR = _HERE / 'assets'
-_CONFIG_FILE = _ASSETS_DIR / 'config.json'
+_HERE = Path(__file__).parent
+
+# PyInstaller 등으로 빌드(frozen)되면 경로가 달라진다:
+#   · 읽기 전용 번들(아이콘·기본 config)        → sys._MEIPASS
+#   · 쓰기 가능한 사용자 데이터(설정·프로젝트)  → %APPDATA%\RWA_HI21cm
+# 개발(비-frozen) 중에는 기존처럼 앱 폴더를 그대로 사용한다.
+_FROZEN = bool(getattr(sys, 'frozen', False))
+if _FROZEN:
+    _BUNDLE_DIR = Path(getattr(sys, '_MEIPASS', Path(sys.executable).parent))
+    _DATA_DIR   = Path(os.environ.get('APPDATA') or Path.home()) / 'RWA_HI21cm'
+else:
+    _BUNDLE_DIR = _HERE
+    _DATA_DIR   = _HERE
+# best-effort: 쓰기 불가한 %APPDATA%(잠금 PC·끊긴 로밍프로필 등)에서도 import가
+# 죽지 않도록 한다. 실제 쓰기는 save()/projects_dir_path 가 그 시점에 다시 mkdir 한다.
+try:
+    _DATA_DIR.mkdir(parents=True, exist_ok=True)
+except OSError:
+    pass
+
+_ASSETS_DIR     = _BUNDLE_DIR / 'assets'           # 읽기 전용: 아이콘·기본 config
+_DEFAULT_CONFIG = _ASSETS_DIR / 'config.json'      # 번들 기본 설정
+# 사용자 설정: 개발 중엔 기존 위치(assets/), frozen 이면 %APPDATA%
+_CONFIG_FILE = (_DATA_DIR / 'config.json') if _FROZEN else _DEFAULT_CONFIG
+
+
+def assets_dir() -> Path:
+    """읽기 전용 번들 에셋 폴더 (아이콘 등). frozen/개발 모두 대응."""
+    return _ASSETS_DIR
 
 
 # ───────────────────────────────────────────────────────────
@@ -99,8 +127,8 @@ class Config:
     # ───────────────────────────────────────────────────────
 
     def save(self) -> None:
-        """현재 설정을 assets/config.json 에 저장."""
-        _ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+        """현재 설정을 사용자 config.json 에 저장 (frozen 이면 %APPDATA%)."""
+        _CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
         data = self._to_json_dict()
         with open(_CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
@@ -108,17 +136,18 @@ class Config:
     @classmethod
     def load(cls) -> Config:
         """
-        assets/config.json 이 있으면 불러오고, 없으면 기본값 반환.
+        사용자 config.json 을 우선 로드, 없으면 번들 기본 config, 둘 다 없으면 기본값.
         파일에 없는 키는 기본값으로 채움 (버전 업 시 하위 호환).
         """
         cfg = cls()
-        if _CONFIG_FILE.exists():
-            try:
-                with open(_CONFIG_FILE, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                cfg._from_json_dict(data)
-            except (json.JSONDecodeError, KeyError):
-                pass   # 파일 깨진 경우 기본값 유지
+        for path in (_CONFIG_FILE, _DEFAULT_CONFIG):
+            if path.exists():
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        cfg._from_json_dict(json.load(f))
+                    break
+                except (json.JSONDecodeError, KeyError):
+                    pass   # 파일 깨진 경우 다음 후보 / 기본값 유지
         return cfg
 
     # ───────────────────────────────────────────────────────
@@ -150,18 +179,18 @@ class Config:
 
     @property
     def data_dir_path(self) -> Path:
-        """data_dir 문자열을 Path 로 반환. 미설정이면 앱 폴더."""
-        return Path(self.data_dir) if self.data_dir else _HERE
+        """data_dir 문자열을 Path 로 반환. 미설정이면 사용자 데이터 폴더."""
+        return Path(self.data_dir) if self.data_dir else _DATA_DIR
 
     @property
     def output_dir_path(self) -> Path:
-        """output_dir 문자열을 Path 로 반환. 미설정이면 앱 폴더."""
-        return Path(self.output_dir) if self.output_dir else _HERE
+        """output_dir 문자열을 Path 로 반환. 미설정이면 사용자 데이터 폴더."""
+        return Path(self.output_dir) if self.output_dir else _DATA_DIR
 
     @property
     def projects_dir_path(self) -> Path:
-        """프로젝트(.json) 저장/열기 폴더. 미설정이면 앱 내 projects/ (없으면 생성)."""
-        p = Path(self.projects_dir) if self.projects_dir else (_HERE / 'projects')
+        """프로젝트(.json) 저장/열기 폴더. 미설정이면 사용자 데이터의 projects/ (없으면 생성)."""
+        p = Path(self.projects_dir) if self.projects_dir else (_DATA_DIR / 'projects')
         p.mkdir(parents=True, exist_ok=True)
         return p
 
@@ -209,9 +238,10 @@ if __name__ == '__main__':
     import tempfile
 
     # 셀프 테스트가 실제 assets/(아이콘·설정)를 건드리지 않도록 임시 폴더로 격리.
-    _TMP_DIR     = Path(tempfile.mkdtemp())
-    _ASSETS_DIR  = _TMP_DIR / 'assets'
-    _CONFIG_FILE = _ASSETS_DIR / 'config.json'
+    _TMP_DIR        = Path(tempfile.mkdtemp())
+    _ASSETS_DIR     = _TMP_DIR / 'assets'
+    _CONFIG_FILE    = _ASSETS_DIR / 'config.json'
+    _DEFAULT_CONFIG = _ASSETS_DIR / 'config.json'
 
     print("=" * 50)
     print("Config 모듈 테스트")

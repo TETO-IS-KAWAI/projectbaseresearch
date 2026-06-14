@@ -12,7 +12,10 @@ from pathlib import Path
 
 from PySide6.QtGui import QIcon
 
-_ICONS_DIR = Path(__file__).parent / 'assets' / 'icons'
+from config import assets_dir
+
+# frozen(빌드) 환경에서도 번들 에셋을 가리키도록 config 기준 경로 사용
+_ICONS_DIR = assets_dir() / 'icons'
 
 # 버튼·메뉴 권장 크기 [px]
 ICON_SIZE_TOOLBAR = 20
