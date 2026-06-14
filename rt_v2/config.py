@@ -44,7 +44,12 @@ if _FROZEN:
 else:
     _BUNDLE_DIR = _HERE
     _DATA_DIR   = _HERE
-_DATA_DIR.mkdir(parents=True, exist_ok=True)
+# best-effort: 쓰기 불가한 %APPDATA%(잠금 PC·끊긴 로밍프로필 등)에서도 import가
+# 죽지 않도록 한다. 실제 쓰기는 save()/projects_dir_path 가 그 시점에 다시 mkdir 한다.
+try:
+    _DATA_DIR.mkdir(parents=True, exist_ok=True)
+except OSError:
+    pass
 
 _ASSETS_DIR     = _BUNDLE_DIR / 'assets'           # 읽기 전용: 아이콘·기본 config
 _DEFAULT_CONFIG = _ASSETS_DIR / 'config.json'      # 번들 기본 설정

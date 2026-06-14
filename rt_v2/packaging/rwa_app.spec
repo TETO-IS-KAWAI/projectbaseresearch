@@ -25,7 +25,7 @@ ENTRY = str(ROOT / 'run.pyw')
 datas, binaries, hiddenimports = [], [], []
 
 # 번들이 까다로운 패키지(데이터 파일·네이티브 DLL 포함)는 통째로 수집
-for _pkg in ('pyvista', 'pyvistaqt', 'vtkmodules', 'astropy', 'astropy_healpix', 'erfa'):
+for _pkg in ('pyvista', 'pyvistaqt', 'vtk', 'vtkmodules', 'astropy', 'astropy_healpix', 'erfa'):
     try:
         _d, _b, _h = collect_all(_pkg)
         datas += _d
