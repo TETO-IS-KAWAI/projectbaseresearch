@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
+from astropy.coordinates import Angle
+import astropy.units as u
 
 from PySide6.QtCore import Qt, QThread, Signal, Slot, QSize
 from PySide6.QtWidgets import (
@@ -34,6 +36,30 @@ from ui_icons import icon, ICON_SIZE_TOOLBAR
 _BG, _BG2, _BG3, _FG = BG, BG2, BG3, FG
 _ACC, _OK, _ERR, _WARN = ACC, OK, ERR, WARN
 _MONO = QFont('Consolas', 9)
+
+
+# ── 좌표 입력 파서 (소수 도 / 시분초 HMS / 도분초 DMS 모두 허용) ──
+
+def parse_ra_deg(text: str) -> float:
+    """적경 문자열을 도(deg)로 변환.
+    허용 형식: '266.4'(도), '17h45m40s', '17:45:40'(시), '266.4d'(도)."""
+    s = text.strip()
+    if not s:
+        raise ValueError('빈 값')
+    low = s.lower()
+    # h 가 있거나 콜론 표기(도 표시 d 없음)면 '시(hour)' 로 해석, 아니면 '도'
+    if 'h' in low or (':' in s and 'd' not in low):
+        return float(Angle(s, unit=u.hourangle).to_value(u.deg))
+    return float(Angle(s, unit=u.deg).to_value(u.deg))
+
+
+def parse_dec_deg(text: str) -> float:
+    """적위 문자열을 도(deg)로 변환.
+    허용 형식: '-28.9', '-29d00m28s', '-29:00:28', "-29°00'28\""."""
+    s = text.strip()
+    if not s:
+        raise ValueError('빈 값')
+    return float(Angle(s, unit=u.deg).to_value(u.deg))
 
 
 # ── 백그라운드 처리 스레드 ────────────────────────────────────
@@ -74,8 +100,16 @@ class ObsParamPanel(QGroupBox):
         def edt(ph, val=''):
             e = QLineEdit(val); e.setPlaceholderText(ph); e.setFont(_MONO); return e
 
-        self._ra  = edt('예: 266.4', '266.4');  g.addWidget(lbl('RA [deg]'), 0,0); g.addWidget(self._ra,  0,1)
-        self._dec = edt('예: -28.9', '-28.9');   g.addWidget(lbl('Dec [deg]'),1,0); g.addWidget(self._dec, 1,1)
+        self._ra  = edt('266.4  또는  17h45m40s', '266.4')
+        g.addWidget(lbl('적경 RA'), 0,0); g.addWidget(self._ra, 0,1)
+        self._dec = edt("-28.9  또는  -29d00m28s", '-28.9')
+        g.addWidget(lbl('적위 Dec'), 1,0); g.addWidget(self._dec, 1,1)
+
+        # 입력한 좌표가 몇 도로 해석됐는지 실시간 미리보기
+        self._coord_hint = QLabel(''); self._coord_hint.setFont(_MONO)
+        g.addWidget(self._coord_hint, 2, 0, 1, 2)
+        self._ra.textChanged.connect(self._update_coord_hint)
+        self._dec.textChanged.connect(self._update_coord_hint)
 
         now = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
         self._time = edt('YYYY-MM-DDTHH:MM:SS', now)
@@ -83,12 +117,12 @@ class ObsParamPanel(QGroupBox):
         now_btn.clicked.connect(lambda: self._time.setText(
             datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')))
         row = QHBoxLayout(); row.addWidget(self._time); row.addWidget(now_btn)
-        g.addWidget(lbl('관측 시각 (UTC)'), 2,0); g.addLayout(row, 2,1)
+        g.addWidget(lbl('관측 시각 (UTC)'), 3,0); g.addLayout(row, 3,1)
 
         self._mode = QComboBox()
         self._mode.addItems(['더미 데이터', 'SDR 데이터 파일'])
         self._mode.currentIndexChanged.connect(lambda i: self._file_row.setVisible(i==1))
-        g.addWidget(lbl('데이터 소스'), 3,0); g.addWidget(self._mode, 3,1)
+        g.addWidget(lbl('데이터 소스'), 4,0); g.addWidget(self._mode, 4,1)
 
         self._file_row = QWidget()
         fl = QHBoxLayout(self._file_row); fl.setContentsMargins(0,0,0,0)
@@ -96,10 +130,10 @@ class ObsParamPanel(QGroupBox):
         self._file_lbl.setStyleSheet(f'color:{_WARN}')
         pick = QPushButton('파일 선택'); pick.clicked.connect(self._pick)
         fl.addWidget(self._file_lbl, 1); fl.addWidget(pick)
-        g.addWidget(self._file_row, 4,0,1,2); self._file_row.setVisible(False)
+        g.addWidget(self._file_row, 5,0,1,2); self._file_row.setVisible(False)
 
         self._method = QComboBox(); self._method.addItems(['peak','integral','mean','median'])
-        g.addWidget(lbl('T_b 대푯값'), 5,0); g.addWidget(self._method, 5,1)
+        g.addWidget(lbl('T_b 대푯값'), 6,0); g.addWidget(self._method, 6,1)
 
         self._run = QPushButton('▶  분석 실행')
         self._run.setFixedHeight(36)
@@ -108,7 +142,8 @@ class ObsParamPanel(QGroupBox):
             self._run.setIcon(_ric)
             self._run.setIconSize(QSize(ICON_SIZE_TOOLBAR, ICON_SIZE_TOOLBAR))
         self._run.clicked.connect(self._emit)
-        g.addWidget(self._run, 6, 0, 1, 2)
+        g.addWidget(self._run, 7, 0, 1, 2)
+        self._update_coord_hint()
 
     def _style(self):
         base = f'''
@@ -194,11 +229,23 @@ class ObsParamPanel(QGroupBox):
             self._file_lbl.setText(Path(path).name)
             self._file_lbl.setStyleSheet(f'color:{_OK}')
 
+    def _update_coord_hint(self):
+        """입력한 적경·적위가 몇 도로 해석됐는지 실시간 표시 (형식 오류 시 빨강)."""
+        try:
+            ra  = parse_ra_deg(self._ra.text())
+            dec = parse_dec_deg(self._dec.text())
+            self._coord_hint.setText(f'→ RA {ra:.4f}°,  Dec {dec:+.4f}°')
+            self._coord_hint.setStyleSheet(f'color:{_OK}; font-size:11px;')
+        except Exception:
+            self._coord_hint.setText('→ 좌표 형식 오류 (예: 266.4  /  17h45m40s  /  17:45:40)')
+            self._coord_hint.setStyleSheet(f'color:{_ERR}; font-size:11px;')
+
     def _emit(self):
         try:
-            ra  = float(self._ra.text())
-            dec = float(self._dec.text())
-        except ValueError:
+            ra  = parse_ra_deg(self._ra.text())
+            dec = parse_dec_deg(self._dec.text())
+        except Exception:
+            self._update_coord_hint()   # 형식 오류를 화면에 표시하고 중단
             return
         obs_time = self._time.text().strip() or \
                datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
