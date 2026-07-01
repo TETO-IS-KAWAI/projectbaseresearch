@@ -290,9 +290,11 @@ def compute_power_spectrum(
 # 3. 도플러 보정
 # ───────────────────────────────────────────────────────────
 
-_LSR_V_KMS  = 20.0    # 태양의 LSR 대비 속도 [km/s]  (IAU 1985)
-_LSR_RA_DEG = 270.0   # LSR 기준 태양 운동 방향 (apex) RA  [deg]
-_LSR_DE_DEG =  30.0   # LSR 기준 태양 운동 방향 (apex) Dec [deg]
+# 태양의 LSR 대비 고유 운동 — 은하 좌표계 UVW 성분 [km/s]
+# 값: Schönrich, Binney & Dehnen (2010) MNRAS 403, 1829 (현대 표준)
+_LSR_U = 11.1    # U: 은하 중심 방향 (l=0)
+_LSR_V = 12.24   # V: 은하 회전 방향 (l=90)
+_LSR_W = 7.25    # W: 은하 북극 방향 (b=90)
 
 
 def radial_velocity_correction(
@@ -333,22 +335,20 @@ def radial_velocity_correction(
             kind='heliocentric', obstime=t, location=loc,
         ).to(u.km / u.s).value
 
-    # LSR 보정: 태양이 apex 쪽으로 _LSR_V_KMS km/s 이동
-    apex_uv = np.array([
-        np.cos(np.radians(_LSR_DE_DEG)) * np.cos(np.radians(_LSR_RA_DEG)),
-        np.cos(np.radians(_LSR_DE_DEG)) * np.sin(np.radians(_LSR_RA_DEG)),
-        np.sin(np.radians(_LSR_DE_DEG)),
-    ])
-    target_uv = np.array([
-        np.cos(np.radians(dec_deg)) * np.cos(np.radians(ra_deg)),
-        np.cos(np.radians(dec_deg)) * np.sin(np.radians(ra_deg)),
-        np.sin(np.radians(dec_deg)),
-    ])
-    v_lsr = _LSR_V_KMS * float(np.dot(apex_uv, target_uv))
+    # LSR 보정: 태양의 LSR 대비 운동(은하 UVW)을 시선 방향으로 투영.
+    # (관측된 heliocentric 속도에 이 성분을 더하면 LSR 정지계 기준이 됨)
+    gal = coord.galactic
+    l_r = gal.l.rad
+    b_r = gal.b.rad
+    v_lsr = (
+        _LSR_U * np.cos(b_r) * np.cos(l_r)
+        + _LSR_V * np.cos(b_r) * np.sin(l_r)
+        + _LSR_W * np.sin(b_r)
+    )
 
     # 최종: 부호 반전 후 LSR 성분 추가
     # (astropy 접근=양수 → 우리 멀어짐=양수로 반전, LSR도 동일 부호)
-    return -(vcorr_helio + v_lsr)
+    return -(vcorr_helio + float(v_lsr))
 
 
 
@@ -402,31 +402,24 @@ def galactocentric_velocity(
     # 접선점 최대 LSR 속도 (평탄 회전 곡선 기준, 내부 은하만 의미 있음)
     v_tan = v_circ_kms * (1.0 - np.abs(np.sin(l)))
 
-    # 운동학적 거리 (평면 근사, |b| < 5° 일 때만 의미 있음)
+    # 운동학적 거리 — spiral_arm.velocity_to_distance 와 동일한 (검증된) 공식.
+    #   v_lsr = v_circ*(R_sun/R - 1)*sin(l)*cos(b) 에서 R 역산 후,
+    #   R² = R_sun² + (d·cos b)² - 2·R_sun·(d·cos b)·cos(l) 을 d 로 풀이.
     sin_l = np.sin(l)
-    if abs(sin_l) < 0.01:
-        d_near = d_far = float('nan')
-        in_inner = False
-    else:
-        # v_lsr = v_circ * (R_sun/R - 1) * sin(l) * cos(b) 에서 R 역산
-        cos_b = np.cos(b)
+    cos_b = np.cos(b)
+    d_near = d_far = float('nan')
+    in_inner = False
+    if abs(sin_l) >= 0.05 and abs(cos_b) >= 0.1:
         with np.errstate(invalid='ignore', divide='ignore'):
             ratio = v_lsr_kms / (v_circ_kms * sin_l * cos_b) + 1.0
-            if ratio <= 0:
-                d_near = d_far = float('nan')
-                in_inner = False
-            else:
+            if ratio > 0:
                 R = R_sun_kpc / ratio
                 in_inner = R < R_sun_kpc
-                # 거리 공식 (2차 방정식 해)
-                discriminant = R_sun_kpc**2 - R**2 * (1 / np.cos(b)**2 - np.tan(l)**2)
-                if discriminant < 0:
-                    d_near = d_far = float('nan')
-                else:
-                    sqrt_d = np.sqrt(max(discriminant, 0))
-                    d_near = R_sun_kpc * np.cos(l) - sqrt_d
-                    d_far  = R_sun_kpc * np.cos(l) + sqrt_d
-                    d_near = max(d_near, 0.0)
+                disc = R_sun_kpc**2 * np.cos(l)**2 + R**2 - R_sun_kpc**2  # = R² - R_sun²·sin²l
+                if disc >= 0:
+                    sqrt_d = np.sqrt(disc)
+                    d_near = max(R_sun_kpc * np.cos(l) - sqrt_d, 0.0) / abs(cos_b)
+                    d_far  = (R_sun_kpc * np.cos(l) + sqrt_d) / abs(cos_b)
 
     return {
         'l_deg':                       l_deg,
