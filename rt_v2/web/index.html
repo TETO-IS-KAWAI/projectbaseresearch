@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- 콘텐츠 보안 정책: 앱 폴더(web/) 안의 파일과 Qt 의 qwebchannel.js 만 실행·로드.
+     외부 서버 접속, 인라인 스크립트, eval, 플러그인, 폼 전송은 모두 금지 -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file: qrc:; style-src 'self' file: 'unsafe-inline'; font-src 'self' file:; img-src 'self' file: data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>HI 21cm 전파망원경</title>
+<link rel="stylesheet" href="css/app.css">
+<script src="js/boot.js"></script>
+</head>
+<body>
+
+<!-- ───────────── 아이콘 (직접 그린 스트로크 아이콘) ───────────── -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h5v-6h4v6h5V9.5"/></symbol>
+    <symbol id="i-antenna" viewBox="0 0 24 24"><path d="M4.9 4.9a10 10 0 0 0 0 14.2"/><path d="M19.1 4.9a10 10 0 0 1 0 14.2"/><path d="M7.8 7.8a6 6 0 0 0 0 8.4"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4"/><circle cx="12" cy="12" r="2"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.8 3 2.8 15 0 18"/><path d="M12 3c-2.8 3-2.8 15 0 18"/></symbol>
+    <symbol id="i-galaxy" viewBox="0 0 24 24"><path d="M12 12c0-2 1.6-3 3-3 2.2 0 4 2 4 4.5C19 17 15.9 20 12 20c-4.7 0-8-3.7-8-8 0-5 4-8.5 8.5-8.5"/><path d="M12 12c0 2-1.6 3-3 3-2.2 0-4-2-4-4.5"/><circle cx="12" cy="12" r="1"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r=".8"/><circle cx="4.5" cy="12" r=".8"/><circle cx="4.5" cy="18" r=".8"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><circle cx="12" cy="7.8" r=".6"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7.5V18a1.5 1.5 0 0 0 1.5 1.5h15A1.5 1.5 0 0 0 21 18V9.5A1.5 1.5 0 0 0 19.5 8H12l-2-2.5H4.5A1.5 1.5 0 0 0 3 7Z"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 5.5v13l11-6.5z"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 7V4.5h4V7M6.5 7l1 13h9l1-13"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.5-4.5L4 8"/><path d="M4 3.5V8h4.5"/><path d="M4 13a8 8 0 0 0 14.5 4.5L20 16"/><path d="M20 20.5V16h-4.5"/></symbol>
+    <symbol id="i-zoom-in" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2M11 8v6M8 11h6"/></symbol>
+    <symbol id="i-zoom-out" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2M8 11h6"/></symbol>
+    <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><path d="m7 7 2 2M15 15l2 2M7 17l2-2M15 9l2-2"/></symbol>
+    <symbol id="i-dice" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9" cy="9" r=".9"/><circle cx="15" cy="15" r=".9"/><circle cx="15" cy="9" r=".9"/><circle cx="9" cy="15" r=".9"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.6"/></symbol>
+    <symbol id="i-command" viewBox="0 0 24 24"><path d="M9 6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3z"/></symbol>
+    <symbol id="i-sidebar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16"/></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4 2.8 19.5h18.4z"/><path d="M12 10v4.5"/><circle cx="12" cy="17" r=".6"/></symbol>
+    <symbol id="i-close-project" viewBox="0 0 24 24"><path d="M15 4h3.5A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5H15"/><path d="M10 8l-4 4 4 4M6 12h10"/></symbol>
+    <symbol id="i-wave" viewBox="0 0 24 24"><path d="M2 12h3l2-6 3 12 3-9 2 6 2-3h5"/></symbol>
+    <symbol id="i-reveal" viewBox="0 0 24 24"><path d="M3 7.5V18a1.5 1.5 0 0 0 1.5 1.5h15A1.5 1.5 0 0 0 21 18V9.5A1.5 1.5 0 0 0 19.5 8H12l-2-2.5H4.5A1.5 1.5 0 0 0 3 7Z"/><path d="M10 14h5M13 11.5l2.5 2.5-2.5 2.5"/></symbol>
+  </defs>
+</svg>
+
+<!-- ───────────── 스플래시 ───────────── -->
+<div id="splash" aria-hidden="true">
+  <canvas id="splash-canvas"></canvas>
+  <div class="splash-foot">
+    <span class="eyebrow">SASA 10TH · TEAM RWA</span>
+    <span class="splash-sub" id="splash-sub">1420.405 751 MHz</span>
+  </div>
+</div>
+
+<!-- ───────────── 앱 ───────────── -->
+<div class="app" id="app">
+
+  <aside class="sidebar" id="sidebar">
+    <div class="brand" data-go="home">
+      <span class="brand-mark"><i></i><i></i><i></i><i></i></span>
+      <span class="brand-name">HI<em>·</em>21cm</span>
+      <span class="brand-ver mono" id="brand-ver">v2</span>
+    </div>
+
+    <nav class="nav" id="nav">
+      <span class="nav-indicator" id="nav-indicator"></span>
+      <div class="nav-group">워크스페이스</div>
+      <a class="nav-item" data-page="home"><svg class="ic"><use href="#i-home"/></svg><span>홈</span><kbd>1</kbd></a>
+      <a class="nav-item" data-page="observe"><svg class="ic"><use href="#i-antenna"/></svg><span>관측</span><kbd>2</kbd></a>
+      <a class="nav-item" data-page="sky"><svg class="ic"><use href="#i-globe"/></svg><span>하늘 지도</span><kbd>3</kbd></a>
+      <a class="nav-item" data-page="galaxy"><svg class="ic"><use href="#i-galaxy"/></svg><span>은하 지도</span><kbd>4</kbd></a>
+      <a class="nav-item" data-page="log"><svg class="ic"><use href="#i-list"/></svg><span>관측 기록</span><kbd>5</kbd></a>
+      <div class="nav-group">앱</div>
+      <a class="nav-item" data-page="settings"><svg class="ic"><use href="#i-settings"/></svg><span>설정</span><kbd>6</kbd></a>
+      <a class="nav-item" data-page="about"><svg class="ic"><use href="#i-info"/></svg><span>정보</span><kbd>7</kbd></a>
+    </nav>
+
+    <div class="side-project" id="side-project"></div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <button class="icon-btn" id="btn-sidebar" title="사이드바 (Ctrl+B)"><svg class="ic"><use href="#i-sidebar"/></svg></button>
+      <div class="crumbs" id="crumbs"><span class="crumb-root">RWA</span><span class="crumb-sep">/</span><span id="crumb-page">홈</span></div>
+      <div class="topbar-right">
+        <button class="search-btn" id="btn-palette"><svg class="ic"><use href="#i-search"/></svg><span>명령 검색</span><kbd>Ctrl</kbd><kbd>K</kbd></button>
+        <div class="chip project-chip" id="project-chip"><span class="dot"></span><span id="project-chip-name">프로젝트 없음</span></div>
+        <button class="icon-btn" id="btn-theme" title="테마 전환 (Ctrl+Shift+L)"><svg class="ic theme-dark"><use href="#i-moon"/></svg><svg class="ic theme-light"><use href="#i-sun"/></svg></button>
+      </div>
+    </header>
+
+    <div class="pages" id="pages">
+
+      <!-- ═════════ 홈 ═════════ -->
+      <section class="page" data-page="home">
+        <div class="wrap">
+          <div class="hero">
+            <div class="eyebrow">Neutral hydrogen · 1420.406 MHz</div>
+            <h1 class="pixel-title" data-pixel>HI 21cm 전파망원경</h1>
+            <p class="lead">SDR 로 받은 수소선 스펙트럼을 도플러 보정·밝기온도로 바꾸고, 운동학적 거리로 우리 은하의 나선팔을 그립니다.</p>
+            <div class="meta-row" id="home-chips"></div>
+          </div>
+
+          <div id="home-body"></div>
+        </div>
+      </section>
+
+      <!-- ═════════ 관측 ═════════ -->
+      <section class="page" data-page="observe">
+        <div class="wrap wide">
+          <div class="page-head">
+            <div>
+              <div class="eyebrow">Observe · Spectrum</div>
+              <h1 class="pixel-title" data-pixel>관측</h1>
+            </div>
+            <div class="page-tools" id="obs-tools"></div>
+          </div>
+
+          <div class="obs-grid">
+            <!-- 입력 -->
+            <div class="card obs-form" id="obs-form">
+              <div class="card-head"><span class="card-title">관측 파라미터</span><span class="eyebrow" id="obs-proj-hint"></span></div>
+              <div class="card-body form">
+                <div class="field">
+                  <label>방향 프리셋</label>
+                  <div class="select-wrap"><select id="obs-preset"></select></div>
+                </div>
+                <div class="field-row">
+                  <div class="field">
+                    <label for="obs-ra">적경 RA</label>
+                    <input id="obs-ra" class="mono" value="266.4" spellcheck="false" autocomplete="off">
+                  </div>
+                  <div class="field">
+                    <label for="obs-dec">적위 Dec</label>
+                    <input id="obs-dec" class="mono" value="-28.9" spellcheck="false" autocomplete="off">
+                  </div>
+                </div>
+                <div class="coord-hint mono" id="obs-coord-hint"></div>
+
+                <div class="field">
+                  <label for="obs-time">관측 시각 <span class="muted">UTC</span></label>
+                  <div class="input-group">
+                    <input id="obs-time" class="mono" spellcheck="false" autocomplete="off">
+                    <button class="btn btn-secondary btn-sm" id="obs-now"><svg class="ic"><use href="#i-clock"/></svg>지금</button>
+                  </div>
+                </div>
+
+                <div class="field">
+                  <label>데이터 소스</label>
+                  <div class="seg" id="obs-source">
+                    <button data-v="sim" class="active">시뮬레이션</button>
+                    <button data-v="file">SDR 파일</button>
+                  </div>
+                </div>
+                <div class="file-pick" id="obs-file-row" hidden>
+                  <svg class="ic"><use href="#i-file"/></svg>
+                  <span class="file-name mono" id="obs-file-name">파일을 선택하세요</span>
+                  <button class="btn btn-secondary btn-sm" id="obs-file-btn">찾아보기</button>
+                </div>
+
+                <div class="field">
+                  <label>T<sub>b</sub> 대푯값 <span class="muted">(지도 색)</span></label>
+                  <div class="seg" id="obs-method">
+                    <button data-v="peak" class="active">peak</button>
+                    <button data-v="integral">integral</button>
+                    <button data-v="mean">mean</button>
+                    <button data-v="median">median</button>
+                  </div>
+                </div>
+
+                <button class="btn btn-primary btn-run" id="obs-run">
+                  <span class="run-label"><svg class="ic"><use href="#i-play"/></svg>분석 실행</span>
+                  <span class="kbd-hint"><kbd>Ctrl</kbd><kbd>↵</kbd></span>
+                </button>
+
+                <ol class="pipeline" id="obs-pipeline">
+                  <li data-s="load">IQ 읽기</li><li data-s="fft">FFT</li><li data-s="doppler">도플러</li>
+                  <li data-s="bandpass" title="밴드패스 제거 · 밝기온도 환산">T<sub>b</sub></li><li data-s="peaks">피크</li><li data-s="distance">거리</li><li data-s="save">저장</li>
+                </ol>
+              </div>
+            </div>
+
+            <!-- 결과 -->
+            <div class="obs-result">
+              <div class="params" id="obs-stats"></div>
+
+              <div class="card">
+                <div class="card-head">
+                  <div class="seg seg-sm" id="spec-kind">
+                    <button data-v="tb" class="active">밝기온도 T<sub>b</sub></button>
+                    <button data-v="power">파워 스펙트럼</button>
+                  </div>
+                  <div class="card-tools">
+                    <div class="seg seg-sm" id="spec-axis">
+                      <button data-v="v" class="active">v<sub>LSR</sub> km/s</button>
+                      <button data-v="f">주파수 GHz</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="chart-wrap" id="spec-chart">
+                  <div class="empty" id="spec-empty">
+                    <canvas class="empty-art" id="spec-empty-art"></canvas>
+                    <div class="empty-title">아직 스펙트럼이 없습니다</div>
+                    <div class="empty-sub">왼쪽에서 방향을 정하고 <b>분석 실행</b>을 누르세요.</div>
+                  </div>
+                </div>
+                <div class="card-foot">
+                  <span class="legend" id="spec-legend"></span>
+                  <span class="note mono" id="spec-note">휠: 확대 · 드래그: 이동 · 더블클릭: 원래대로</span>
+                </div>
+              </div>
+
+              <div class="card" id="obs-peaks-card">
+                <div class="card-head"><span class="card-title">검출된 HI 피크</span><span class="eyebrow" id="obs-peaks-count"></span></div>
+                <div class="table-wrap"><table class="table" id="obs-peaks"></table></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═════════ 하늘 지도 ═════════ -->
+      <section class="page page-full" data-page="sky">
+        <div class="stage">
+          <canvas id="sky-canvas"></canvas>
+          <div class="stage-head">
+            <div>
+              <div class="eyebrow">All-sky · HEALPix</div>
+              <h1 class="pixel-title" data-pixel>하늘 지도</h1>
+            </div>
+          </div>
+          <div class="float-bar top-center">
+            <div class="seg seg-sm" id="sky-proj"><button data-v="moll" class="active">몰바이데</button><button data-v="globe">천구</button></div>
+            <div class="seg seg-sm" id="sky-frame"><button data-v="gal" class="active">은하 좌표</button><button data-v="eq">적도 좌표</button></div>
+          </div>
+          <div class="float-panel right" id="sky-panel">
+            <div class="fp-sec">
+              <div class="fp-title">레이어</div>
+              <label class="switch-row"><span>격자</span><input type="checkbox" class="switch" id="sky-l-grid" checked></label>
+              <label class="switch-row"><span>은하면 · 적도</span><input type="checkbox" class="switch" id="sky-l-plane" checked></label>
+              <label class="switch-row"><span>HEALPix 경계</span><input type="checkbox" class="switch" id="sky-l-cells" checked></label>
+              <label class="switch-row"><span>관측 가능 하늘</span><input type="checkbox" class="switch" id="sky-l-visible" checked></label>
+              <label class="switch-row"><span>지금의 천정</span><input type="checkbox" class="switch" id="sky-l-zenith" checked></label>
+              <label class="switch-row"><span>연속체 전경 차감</span><input type="checkbox" class="switch" id="sky-l-fg"></label>
+            </div>
+            <div class="fp-sec">
+              <div class="fp-title">밝기온도 <span class="muted mono" id="sky-unit">K</span></div>
+              <div class="colorbar" id="sky-colorbar"></div>
+              <div class="colorbar-labels mono"><span id="sky-vmin">—</span><span id="sky-vmax">—</span></div>
+            </div>
+            <div class="fp-sec" id="sky-hover">
+              <div class="fp-title">픽셀</div>
+              <div class="kv mono" id="sky-hover-kv"><span class="muted">지도 위에 마우스를 올려 보세요</span></div>
+            </div>
+            <div class="fp-sec">
+              <div class="kv mono" id="sky-stats"></div>
+              <div class="btn-row">
+                <button class="btn btn-secondary btn-sm" id="sky-fits"><svg class="ic"><use href="#i-download"/></svg>FITS</button>
+                <button class="btn btn-secondary btn-sm" id="sky-moc"><svg class="ic"><use href="#i-download"/></svg>MOC</button>
+              </div>
+            </div>
+          </div>
+          <div class="float-bar bottom-left mono" id="sky-cursor"></div>
+        </div>
+      </section>
+
+      <!-- ═════════ 은하 지도 ═════════ -->
+      <section class="page page-full" data-page="galaxy">
+        <div class="stage">
+          <canvas id="gal-canvas"></canvas>
+          <div class="stage-head">
+            <div>
+              <div class="eyebrow">Face-on · kinematic distance</div>
+              <h1 class="pixel-title" data-pixel>은하 지도</h1>
+            </div>
+          </div>
+          <div class="float-bar top-center">
+            <div class="seg" id="gal-mode">
+              <button data-v="infer" class="active"><svg class="ic"><use href="#i-spark"/></svg>관측 데이터로 추론</button>
+              <button data-v="model"><svg class="ic"><use href="#i-layers"/></svg>문헌 모델 예측</button>
+              <button data-v="compare">겹쳐 보기</button>
+            </div>
+          </div>
+          <div class="zoom-ctl">
+            <button class="icon-btn" id="gal-zin" title="확대"><svg class="ic"><use href="#i-zoom-in"/></svg></button>
+            <button class="icon-btn" id="gal-zout" title="축소"><svg class="ic"><use href="#i-zoom-out"/></svg></button>
+            <button class="icon-btn" id="gal-zreset" title="원래대로"><svg class="ic"><use href="#i-target"/></svg></button>
+          </div>
+          <div class="float-bar bottom-left mono" id="gal-cursor"></div>
+          <div class="scalebar mono" id="gal-scale"><i></i><span>1 kpc</span></div>
+          <div class="gal-empty" id="gal-empty" hidden></div>
+
+          <div class="float-panel right wide" id="gal-panel">
+            <!-- 추론 -->
+            <div class="fp-sec" data-when="infer compare">
+              <div class="fp-title">추론 결과 <span class="badge" id="gal-fit-badge">—</span></div>
+              <div class="kv mono" id="gal-fit-kv"></div>
+              <div class="arm-list" id="gal-arms"></div>
+            </div>
+            <div class="fp-sec" data-when="infer compare">
+              <div class="fp-title">허프 공간 <span class="muted">ψ × 나선 위상 ξ</span></div>
+              <div class="hough"><canvas id="gal-hough"></canvas></div>
+              <div class="fp-note">각 점이 "이 피치각이면 이 위상의 팔 위에 있다"라고 투표합니다. 밝은 봉우리 하나가 팔 하나입니다.</div>
+            </div>
+            <div class="fp-sec" data-when="infer compare">
+              <div class="fp-title">추론 조건</div>
+              <div class="field">
+                <label>근/원거리 모호성</label>
+                <div class="seg seg-sm" id="gal-amb"><button data-v="auto" class="active">자동</button><button data-v="near">근거리</button><button data-v="far">원거리</button></div>
+              </div>
+              <div class="field">
+                <label>|b| 한계 <output class="mono" id="gal-bmax-o">30°</output></label>
+                <input type="range" class="range" id="gal-bmax" min="5" max="90" step="1" value="30">
+              </div>
+              <div class="field">
+                <label>팔 폭 허용 <output class="mono" id="gal-tol-o">±0.65 kpc</output></label>
+                <input type="range" class="range" id="gal-tol" min="0.03" max="0.2" step="0.005" value="0.08">
+              </div>
+              <div class="field">
+                <label>팔당 최소 점 <output class="mono" id="gal-minpts-o">4</output></label>
+                <input type="range" class="range" id="gal-minpts" min="3" max="10" step="1" value="4">
+              </div>
+            </div>
+            <div class="fp-sec" data-when="infer compare">
+              <div class="fp-title">데이터</div>
+              <label class="switch-row"><span>관측 피크 <span class="muted mono" id="gal-n-obs">0</span></span><input type="checkbox" class="switch" id="gal-use-obs" checked></label>
+              <label class="switch-row"><span>합성 피크 <span class="muted mono" id="gal-n-syn">0</span></span><input type="checkbox" class="switch" id="gal-use-syn" checked></label>
+              <div class="btn-row">
+                <button class="btn btn-secondary btn-sm" id="gal-syn-gen"><svg class="ic"><use href="#i-dice"/></svg>합성 데이터 만들기</button>
+                <button class="btn btn-ghost btn-sm" id="gal-syn-clear">지우기</button>
+              </div>
+              <div class="fp-note">합성 데이터: 문헌 팔 모델에서 가상의 구름을 만들고 속도 잡음(±7 km/s)을 더한 것. 실제 관측이 아닙니다.</div>
+            </div>
+            <!-- 모델 -->
+            <div class="fp-sec" data-when="model compare">
+              <div class="fp-title">문헌 모델 <span class="muted">Hou &amp; Han 2014</span></div>
+              <div class="arm-list" id="gal-model-arms"></div>
+              <label class="switch-row"><span>관측 시선과 예상 교차점 <span class="muted">(모델 보기)</span></span><input type="checkbox" class="switch" id="gal-sight" checked></label>
+              <div class="fp-note">관측한 방향마다, 시선이 모델 팔을 지나는 곳과 그곳 가스의 예상 v<sub>LSR</sub> 를 보여 줍니다.</div>
+            </div>
+            <div class="fp-sec">
+              <div class="fp-title">표시</div>
+              <label class="switch-row" data-when="infer compare"><span>모호한 다른 해 표시</span><input type="checkbox" class="switch" id="gal-alt" checked></label>
+              <label class="switch-row" data-when="infer compare"><span>제외된 점 표시</span><input type="checkbox" class="switch" id="gal-excl" checked></label>
+              <label class="switch-row" data-when="infer compare"><span>팔 폭 띠 (허용 범위)</span><input type="checkbox" class="switch" id="gal-band"></label>
+              <div class="field">
+                <label>보는 방향</label>
+                <div class="seg seg-sm" id="gal-view"><button data-v="ngp" class="active">북은하극</button><button data-v="sgp">남은하극</button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═════════ 관측 기록 ═════════ -->
+      <section class="page" data-page="log">
+        <div class="wrap wide">
+          <div class="page-head">
+            <div>
+              <div class="eyebrow">Observations</div>
+              <h1 class="pixel-title" data-pixel>관측 기록</h1>
+            </div>
+            <div class="page-tools">
+              <div class="search-input"><svg class="ic"><use href="#i-search"/></svg><input id="log-search" placeholder="파일·좌표·시각 검색" spellcheck="false"></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="table-wrap tall"><table class="table selectable" id="log-table"></table></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═════════ 설정 ═════════ -->
+      <section class="page" data-page="settings">
+        <div class="wrap">
+          <div class="page-head">
+            <div>
+              <div class="eyebrow">Preferences</div>
+              <h1 class="pixel-title" data-pixel>설정</h1>
+            </div>
+            <div class="page-tools"><span class="save-state mono" id="set-state"></span></div>
+          </div>
+          <div class="settings" id="settings"></div>
+        </div>
+      </section>
+
+      <!-- ═════════ 정보 ═════════ -->
+      <section class="page" data-page="about">
+        <div class="wrap">
+          <div class="about-hero">
+            <canvas id="about-canvas"></canvas>
+            <div class="about-caption">마우스를 올려 보세요</div>
+          </div>
+          <div id="about-body"></div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<!-- 공용 오버레이 -->
+<div class="palette-backdrop" id="palette" hidden>
+  <div class="palette">
+    <div class="palette-input"><svg class="ic"><use href="#i-search"/></svg><input id="palette-input" placeholder="명령이나 페이지 이름…" spellcheck="false" autocomplete="off"><kbd>Esc</kbd></div>
+    <div class="palette-list" id="palette-list"></div>
+  </div>
+</div>
+<div class="modal-backdrop" id="modal" hidden><div class="modal" id="modal-box"></div></div>
+<div class="toasts" id="toasts"></div>
+<div class="tooltip" id="tooltip" hidden></div>
+<canvas id="fx-layer"></canvas>
+
+<script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+<script src="js/core.js"></script>
+<script src="js/pixel.js"></script>
+<script src="js/chart.js"></script>
+<script src="js/sky.js"></script>
+<script src="js/galaxy.js"></script>
+<script src="js/pages.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

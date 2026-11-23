@@ -6,7 +6,7 @@ REM ============================================================
 setlocal
 cd /d "%~dp0.."
 
-echo === PyInstaller 빌드 시작 (VTK 포함, 수 분 소요) ===
+echo === PyInstaller 빌드 시작 (Qt WebEngine 포함, 수 분 소요) ===
 python -m PyInstaller --noconfirm --clean "packaging\rwa_app.spec"
 if errorlevel 1 (
   echo.

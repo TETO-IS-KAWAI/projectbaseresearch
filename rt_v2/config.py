@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, ClassVar
 
@@ -53,8 +53,10 @@ except OSError:
 
 _ASSETS_DIR     = _BUNDLE_DIR / 'assets'           # 읽기 전용: 아이콘·기본 config
 _DEFAULT_CONFIG = _ASSETS_DIR / 'config.json'      # 번들 기본 설정
-# 사용자 설정: 개발 중엔 기존 위치(assets/), frozen 이면 %APPDATA%
-_CONFIG_FILE = (_DATA_DIR / 'config.json') if _FROZEN else _DEFAULT_CONFIG
+# 사용자 설정: frozen 이면 %APPDATA%, 개발 중엔 앱 폴더의 config.user.json
+# (git 이 추적하는 assets/config.json 은 '기본값' 으로만 읽고 덮어쓰지 않는다 —
+#  UI 상태·최근 프로젝트 경로 같은 개인 값이 커밋에 섞이지 않도록)
+_CONFIG_FILE = (_DATA_DIR / 'config.json') if _FROZEN else (_HERE / 'config.user.json')
 
 
 def assets_dir() -> Path:
@@ -100,7 +102,13 @@ class Config:
 
     # ── 표시 설정 ────────────────────────────────────────────
     temp_method:   str  = 'peak'     # 밝기온도 대푯값 방식: peak / integral / mean / median
-    dark_mode:     bool = True       # UI 테마 플래그 (향후 확장용)
+    dark_mode:     bool = True       # (구버전 호환) 다크 테마 여부 — theme 이 우선
+    theme:         str  = 'dark'     # UI 테마: dark / light / system
+    reduce_motion: bool = False      # 애니메이션 줄이기
+    gpu_accel:     str  = 'auto'     # 그래픽 가속: auto(GPU 사용, 차단 목록 무시) / off(소프트웨어 렌더링)
+    compute_process: bool = True     # 관측 계산을 별도 프로세스(다른 CPU 코어)에서
+    ui:            dict = field(default_factory=dict)   # 화면별 UI 상태(필터·토글 등)
+    recent_projects: list = field(default_factory=list) # 최근 연 프로젝트 경로 (최신순)
 
     # ── 은하 연속체 전경 (해석식, healpy 미사용) ───────────────
     fg_T0_k:       float = 2.0    # |b|≈90° 기준 T [K]

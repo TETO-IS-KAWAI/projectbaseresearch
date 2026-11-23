@@ -97,7 +97,7 @@ class ProjectManager:
         if not result.get('success', False):
             return
 
-        self._observations.append({
+        rec = {
             'ra':           result['ra'],
             'dec':          result['dec'],
             'obs_time':     result.get('obs_time', ''),
@@ -106,7 +106,13 @@ class ProjectManager:
             'T_b_raw':      float(result['T_b_raw']),
             'v_radial_kms': float(result['v_radial_kms']),
             'success':      True,
-        })
+        }
+        # 있으면 함께 저장 (새 UI 가 목록/지도에서 바로 씀 — 없어도 하위 호환)
+        for k in ('l_deg', 'b_deg', 'W_HI_K_kms', 'T_b_peak', 'source', 'temp_method'):
+            if k in result and result[k] is not None:
+                v = result[k]
+                rec[k] = float(v) if isinstance(v, (int, float, np.floating)) else v
+        self._observations.append(rec)
 
         if self._sky_map is None:
             npix = 12 * self._nside ** 2
@@ -116,6 +122,18 @@ class ProjectManager:
         self._sky_map, self._hit_map = update_sky_map(
             self._sky_map, self._hit_map, result, self._nside,
         )
+        self.save()
+
+    def close(self) -> None:
+        """현재 프로젝트를 닫는다 (파일은 그대로)."""
+        self.__init__()
+
+    def remove_observation(self, index: int) -> None:
+        """관측 1건 삭제 후 하늘 지도 재구성·저장."""
+        if not (0 <= index < len(self._observations)):
+            raise IndexError(index)
+        del self._observations[index]
+        self._rebuild_sky_map()
         self.save()
 
     # ── 프로퍼티 ─────────────────────────────────────────────
