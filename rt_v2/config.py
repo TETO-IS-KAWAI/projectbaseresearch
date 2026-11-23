@@ -105,6 +105,8 @@ class Config:
     dark_mode:     bool = True       # (구버전 호환) 다크 테마 여부 — theme 이 우선
     theme:         str  = 'dark'     # UI 테마: dark / light / system
     reduce_motion: bool = False      # 애니메이션 줄이기
+    gpu_accel:     str  = 'auto'     # 그래픽 가속: auto(GPU 사용, 차단 목록 무시) / off(소프트웨어 렌더링)
+    compute_process: bool = True     # 관측 계산을 별도 프로세스(다른 CPU 코어)에서
     ui:            dict = field(default_factory=dict)   # 화면별 UI 상태(필터·토글 등)
     recent_projects: list = field(default_factory=list) # 최근 연 프로젝트 경로 (최신순)
 

@@ -358,6 +358,24 @@ window.RT = window.RT || {};
     c.style.setProperty('--my', e.clientY - r.top + 'px');
   }, { passive: true });
 
+  // 화면을 실제로 그리는 그래픽 장치 (WebGL 로 확인; 소프트웨어면 SwiftShader 등으로 나온다)
+  let _gpu = null;
+  function gpuInfo() {
+    if (_gpu) return _gpu;
+    try {
+      const gl = document.createElement('canvas').getContext('webgl');
+      const ext = gl && gl.getExtension('WEBGL_debug_renderer_info');
+      const r = gl ? (ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)) : '';
+      const sw = !gl || /swiftshader|software|llvmpipe|basic render/i.test(r);
+      // 'ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x0000A7A0) Direct3D11 vs_5_0 …)' → 'Intel(R) Iris(R) Xe Graphics'
+      let name = r;
+      if (/^ANGLE \(/.test(r)) name = (r.slice(7).split(', ')[1] || r).split(/ \(0x| Direct3D| OpenGL| Vulkan/)[0];
+      name = name || '없음';
+      _gpu = { renderer: r, name: name.trim(), accelerated: !sw };
+    } catch (_) { _gpu = { renderer: '', name: '확인 불가', accelerated: false }; }
+    return _gpu;
+  }
+
   // 캔버스 HiDPI 맞춤
   function fitCanvas(canvas) {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -375,6 +393,6 @@ window.RT = window.RT || {};
     bus, backend, eq2gal, gal2eq, parseRA, parseDec, raToHMS, decToDMS, zenithRA,
     ang2pixRing, radecToPix, b64f32, hexToRgb, rgba, cmap, cmapCss, cmapGradient, CMAP_HI,
     ARM_COLORS, ARM_KO, armColor, FIT_COLORS, tween, countUp, segmented, bindRange,
-    toast, modal, tip, kvHTML, fitCanvas,
+    toast, modal, tip, kvHTML, fitCanvas, gpuInfo,
   });
 })(window.RT);

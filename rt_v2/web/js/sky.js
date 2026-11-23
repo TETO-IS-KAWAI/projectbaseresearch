@@ -36,6 +36,7 @@
       this.view = { s: 1, ox: 0, oy: 0 };          // 몰바이데 확대/이동
       this.rot = { lon: 0, lat: 20, vl: 0, vb: 0 }; // 천구 회전
       this.hoverPix = -1; this.alpha = 1; this.site = { lat: 36.5, lon: 127.2 };
+      this.introT = 1;          // 등장 애니메이션 진행도 (0→1)
       this._dirty = true; this._loop = false; this._idle = 0; this.autoSpin = true;
       new ResizeObserver(() => this.redraw()).observe(canvas);
       this._bind();
@@ -48,13 +49,28 @@
       this._mc = null; this._scr = null; this._ver = (this._ver || 0) + 1;
       this.redraw();
     }
-    setData(d) {
+    setData(d, animate = true) {
       this._ver = (this._ver || 0) + 1;
       this.vals = new Map(d.pixels.map((p, i) => [p, d.values[i]]));
       this.hits = new Map(d.pixels.map((p, i) => [p, d.hits[i]]));
+      if (!animate) { this.alpha = 1; this.redraw(); return; }
       this.alpha = 0;
       tween(700, (t) => { this.alpha = t; this.redraw(); });
     }
+    /** 페이지에 들어올 때·투영을 바꿀 때: 몰바이데는 가운데서 물결처럼 퍼지며, 천구는 돌면서 나타난다 */
+    intro() {
+      if (!RT.motionOK()) { this.introT = 1; this.redraw(); return; }
+      const run = (this._introRun = (this._introRun || 0) + 1);
+      const lon1 = this.rot.lon, lon0 = lon1 + 100, lat1 = this.rot.lat, lat0 = lat1 + 25;
+      this.introT = 0;
+      tween(1400, (t) => {
+        if (run !== this._introRun) return;
+        this.introT = t;
+        if (this.proj === 'globe') { this.rot.lon = RT.lerp(lon0, lon1, t); this.rot.lat = RT.lerp(lat0, lat1, t); }
+        this.redraw();
+      }, RT.ease.outExpo);
+    }
+    hide() { this._introRun = (this._introRun || 0) + 1; this.introT = 0; this.redraw(); }
     setForeground(arr) { this.fg = arr; this._ver = (this._ver || 0) + 1; this.redraw(); }
     value(p) {
       let v = this.vals.get(p);
@@ -78,7 +94,7 @@
         const r = this.rot;
         if (!this._drag) {
           if (Math.abs(r.vl) + Math.abs(r.vb) > 0.01) { r.lon += r.vl; r.lat = clamp(r.lat + r.vb, -89, 89); r.vl *= 0.94; r.vb *= 0.94; this._dirty = true; again = true; }
-          else if (this.autoSpin && RT.motionOK() && this.c.offsetParent) { r.lon += 0.06; this._dirty = true; again = true; }
+          else if (this.autoSpin && this.introT >= 1 && RT.motionOK() && this.c.offsetParent) { r.lon += 0.06; this._dirty = true; again = true; }
         }
       }
       if (this._dirty && this.c.offsetParent) { this._dirty = false; this.draw(); }
@@ -94,11 +110,12 @@
       const w = this.c.clientWidth, h = this.c.clientHeight;
       const right = this.o.rightInset || 0;
       const aw = w - right - 40, ah = h - 140;
+      const grow = 0.92 + 0.08 * this.introT;
       if (this.proj === 'moll') {
         const base = Math.min(aw / (4 * SQ2), ah / (2 * SQ2));
-        return { w, h, cx: (w - right) / 2 + this.view.ox, cy: h / 2 + 24 + this.view.oy, s: base * this.view.s };
+        return { w, h, cx: (w - right) / 2 + this.view.ox, cy: h / 2 + 24 + this.view.oy, s: base * this.view.s * grow };
       }
-      const R = Math.min(aw, ah - 40) / 2 * 0.92 * this.view.s;
+      const R = Math.min(aw, ah - 40) / 2 * 0.92 * this.view.s * grow;
       return { w, h, cx: (w - right) / 2 + 10, cy: h / 2 + 44, R };
     }
     // 표시 경위도 → 화면 (보이지 않으면 null)
@@ -227,7 +244,7 @@
       if (this.proj === 'moll') {
         // 몰바이데는 정적인 바탕을 따로 그려 두고, 마우스 강조·천정만 매번 덧그린다
         const key = [w, h, dpr, L.s, L.cx, L.cy, this.frame, this.geom.nside, document.documentElement.dataset.theme,
-          JSON.stringify(this.layers), this._ver, this.alpha, this.site.lat, this.fgScale].join('|');
+          JSON.stringify(this.layers), this._ver, this.alpha, this.site.lat, this.fgScale, this.introT].join('|');
         if (key !== this._baseKey) {
           const bc = this._baseCv || (this._baseCv = document.createElement('canvas'));
           bc.width = this.c.width; bc.height = this.c.height;
@@ -249,7 +266,8 @@
       const line = cssVar('--line'), line2 = cssVar('--line-2'), muted = cssVar('--muted'), acc = cssVar('--accent');
       const dark = document.documentElement.dataset.theme !== 'light';
 
-      // 바탕 (구/타원)
+      // 바탕 (구/타원) — 등장 중엔 함께 페이드
+      ctx.globalAlpha = Math.min(1, this.introT * 2);
       ctx.save();
       this._outline(ctx, L);
       const grd = this.proj === 'globe'
@@ -267,8 +285,21 @@
       const hiddenFill = dark ? 'rgba(255,90,82,.06)' : 'rgba(229,56,59,.06)';
       const obsLine = rgba(dark ? '#000000' : '#ffffff', 0.25);
       ctx.lineWidth = 1;
+      // 등장: 화면 가운데(몰바이데)·시점 중심(천구)에서 각거리 순으로 물결처럼 드러난다
+      const T = this.introT, cc = this.frame === 'gal' ? g.cgal : g.ceq;
+      const c0 = this.proj === 'globe' ? [this.rot.lon * D2R, this.rot.lat * D2R] : [0, 0];
+      const reveal = (i) => {
+        if (T >= 1) return 1;
+        const l = cc[2 * i] * D2R, b = cc[2 * i + 1] * D2R;
+        const cosd = Math.sin(b) * Math.sin(c0[1]) + Math.cos(b) * Math.cos(c0[1]) * Math.cos(l - c0[0]);
+        const d = Math.acos(clamp(cosd, -1, 1)) / Math.PI;           // 0(가운데) … 1(반대편)
+        return clamp((T * 1.4 - d) / 0.4, 0, 1);
+      };
       for (let i = 0; i < g.npix; i++) {
         if (!this._vis[i]) continue;
+        const rv = reveal(i);
+        if (rv <= 0) continue;
+        ctx.globalAlpha = rv;
         const v = this.value(i);
         const hidden = v === null && this.layers.visible && g.ceq[2 * i + 1] < lat0 - 90;
         if (v === null && !hidden && !this.layers.cells) continue;
@@ -278,10 +309,11 @@
           ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${this.alpha})`; ctx.fill();
         } else if (hidden) { ctx.fillStyle = hiddenFill; ctx.fill(); }
         if (this.layers.cells) {
-          ctx.strokeStyle = v !== null ? obsLine : line; ctx.globalAlpha = v !== null ? 1 : gridAlpha;
-          ctx.stroke(); ctx.globalAlpha = 1;
+          ctx.strokeStyle = v !== null ? obsLine : line; ctx.globalAlpha = (v !== null ? 1 : gridAlpha) * rv;
+          ctx.stroke();
         }
       }
+      ctx.globalAlpha = clamp(T * 1.6 - 0.3, 0, 1);   // 격자·은하면·라벨은 픽셀보다 조금 늦게
 
       // 경위선
       if (this.layers.grid) {
@@ -309,6 +341,7 @@
         ctx.strokeStyle = rgba(cssVar('--red'), 0.55); ctx.setLineDash([5, 4]); this._polyline(ctx, L, pts); ctx.setLineDash([]);
       }
       ctx.restore();
+      ctx.globalAlpha = Math.min(1, T * 2);
 
       // 가장자리
       this._outline(ctx, L); ctx.strokeStyle = line2; ctx.lineWidth = 1; ctx.stroke();
@@ -328,10 +361,12 @@
         ctx.textAlign = 'right';
         for (const lat of [-60, -30, 30, 60]) { const p = this._project(L, 180, lat); ctx.fillText(`${lat > 0 ? '+' : '−'}${Math.abs(lat)}°`, p[0] - 6, p[1] + 4); }
       }
+      ctx.globalAlpha = 1;
     }
 
     _drawOverlay(ctx, L) {
       ctx.save();
+      ctx.globalAlpha = clamp(this.introT * 1.6 - 0.4, 0, 1);
       this._outline(ctx, L); ctx.clip();
       // 지금의 천정 + 지평선
       if (this.layers.zenith) {

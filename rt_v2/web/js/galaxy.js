@@ -16,7 +16,9 @@
       this.view = { x: 0, y: 4.2, s: 1 }; this._target = null;
       this.armProg = 1; this.modelProg = 1; this.sweep = 1;
       this.hover = null; this.selected = null; this.highlightArm = null;
-      new ResizeObserver(() => this.draw()).observe(canvas);
+      this.fade = 1;            // 등장 애니메이션: 배경·팔 전체 불투명도
+      this._ver = 0;            // 데이터가 바뀔 때마다 +1 (정적 레이어 캐시 키)
+      new ResizeObserver(() => this.requestDraw()).observe(canvas);
       this._bind();
     }
     get mirror() { return this.opts.view === 'ngp' ? -1 : 1; }
@@ -34,24 +36,45 @@
     }
     get scale() { return this._base().k * this.view.s; }
 
+    /** 그리기는 한 프레임에 한 번만 (마우스 이벤트가 프레임당 여러 번 와도) */
+    requestDraw() {
+      if (this._pending) return;
+      this._pending = true;
+      requestAnimationFrame(() => { this._pending = false; this.draw(); });
+    }
     setInfer(res, animate = true) {
-      this.infer = res;
+      this.infer = res; this._ver++;
       if (animate && RT.motionOK()) {
         this.sweep = 0; this.armProg = 0;
-        tween(1100, (t) => { this.sweep = t; this.draw(); }, ease.inOut)
-          .then(() => tween(1100, (t) => { this.armProg = t; this.draw(); }, ease.out));
-      } else { this.sweep = 1; this.armProg = 1; this.draw(); }
+        tween(1100, (t) => { this.sweep = t; this.requestDraw(); }, ease.inOut)
+          .then(() => tween(1100, (t) => { this.armProg = t; this.requestDraw(); }, ease.out));
+      } else { this.sweep = 1; this.armProg = 1; this.requestDraw(); }
     }
     setModel(m, animate = true) {
-      this.model = m;
-      if (animate && RT.motionOK()) { this.modelProg = 0; tween(1300, (t) => { this.modelProg = t; this.draw(); }, ease.out); }
-      else { this.modelProg = 1; this.draw(); }
+      this.model = m; this._ver++;
+      if (animate && RT.motionOK()) { this.modelProg = 0; tween(1300, (t) => { this.modelProg = t; this.requestDraw(); }, ease.out); }
+      else { this.modelProg = 1; this.requestDraw(); }
     }
     setMode(m) {
       const prev = this.mode; this.mode = m;
       if (m !== 'infer' && prev === 'infer' && this.model) this.setModel(this.model, true);
-      else if (m !== 'model' && prev === 'model' && this.infer) { this.armProg = 0; tween(900, (t) => { this.armProg = t; this.draw(); }); }
-      this.draw();
+      else if (m !== 'model' && prev === 'model' && this.infer) { this.armProg = 0; tween(900, (t) => { this.armProg = t; this.requestDraw(); }); }
+      this.requestDraw();
+    }
+    /** 페이지에 들어올 때마다: 살짝 멀리서 다가오며 나타나고 → 레이더가 돌며 점이 찍히고 → 팔이 그려진다 */
+    hide() { this._introRun = (this._introRun || 0) + 1; this.fade = 0; this.requestDraw(); }
+    intro() {
+      if (!RT.motionOK()) { this.fade = 1; this.sweep = this.armProg = this.modelProg = 1; this.requestDraw(); return; }
+      const run = (this._introRun = (this._introRun || 0) + 1);
+      const to = { x: 0, y: 4.2, s: 1 }, from = { x: 0, y: 5.4, s: 0.78 };
+      this.fade = 0; this.sweep = 0; this.armProg = 0; this.modelProg = 0;
+      tween(950, (t) => {
+        if (run !== this._introRun) return;
+        this.fade = t; this.view = { x: lerp(from.x, to.x, t), y: lerp(from.y, to.y, t), s: lerp(from.s, to.s, t) };
+        this.modelProg = t; this.requestDraw();
+      }, ease.outExpo);
+      tween(1150, (t) => { if (run === this._introRun) { this.sweep = t; this.requestDraw(); } }, ease.inOut)
+        .then(() => tween(900, (t) => { if (run === this._introRun) { this.armProg = t; this.requestDraw(); } }, ease.out));
     }
     zoom(f, sx, sy) {
       const B = this._base(); sx ??= B.cx; sy ??= B.cy;
@@ -65,18 +88,45 @@
     }
     reset() { this._animView({ ...this.view }, { x: 0, y: 4.2, s: 1 }, 520); }
     _animView(from, to, dur) {
-      tween(dur, (t) => { this.view = { x: lerp(from.x, to.x, t), y: lerp(from.y, to.y, t), s: lerp(from.s, to.s, t) }; this.draw(); }, ease.out);
+      tween(dur, (t) => { this.view = { x: lerp(from.x, to.x, t), y: lerp(from.y, to.y, t), s: lerp(from.s, to.s, t) }; this.requestDraw(); }, ease.out);
     }
 
     // ───────── 그리기 ─────────
+    // 정적 레이어(광채·동심원·경도선·팔·시선)는 화면 상태가 같으면 다시 그리지 않고 붙여넣기만 한다.
+    // 마우스를 올려 점을 강조할 때처럼 '위 레이어'만 바뀌면 점·표식만 새로 그린다.
     draw() {
-      const { ctx, w, h } = fitCanvas(this.c);
+      const { ctx, w, h, dpr } = fitCanvas(this.c);
       ctx.clearRect(0, 0, w, h);
-      const dark = document.documentElement.dataset.theme !== 'light';
-      const C = {
-        line: cssVar('--line'), line2: cssVar('--line-2'), line3: cssVar('--line-3'), sub: cssVar('--sub'), muted: cssVar('--muted'),
+      const C = this._colors();
+      const key = [w, h, dpr, this.view.x, this.view.y, this.view.s, C.theme, this.mode,
+        JSON.stringify(this.opts), this.armProg, this.modelProg, this._ver, [...this.armOff].join(','),
+        [...this.modelOff].join(','), this.highlightArm].join('|');
+      if (key !== this._baseKey) {
+        const bc = this._baseCv || (this._baseCv = document.createElement('canvas'));
+        bc.width = this.c.width; bc.height = this.c.height;
+        const b = bc.getContext('2d'); b.setTransform(dpr, 0, 0, dpr, 0, 0);
+        this._drawBase(b, w, h, C);
+        this._baseKey = key;
+      }
+      ctx.globalAlpha = this.fade;
+      ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(this._baseCv, 0, 0); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.globalAlpha = 1;
+      this._drawTop(ctx, C);
+      this.o.onScale && this.o.onScale(this.scale);
+    }
+    _colors() {
+      const theme = document.documentElement.dataset.theme;
+      if (this._C && this._C.theme === theme) return this._C;
+      this._C = {
+        theme, line: cssVar('--line'), line2: cssVar('--line-2'), line3: cssVar('--line-3'), sub: cssVar('--sub'), muted: cssVar('--muted'),
         text: cssVar('--text'), acc: cssVar('--accent'), amber: cssVar('--amber'), red: cssVar('--red'), surf: cssVar('--surface'), mono: cssVar('--mono'), sans: cssVar('--sans'),
+        arm: Object.fromEntries(Object.keys(RT.ARM_COLORS).map((n) => [n, armColor(n)])),
       };
+      return this._C;
+    }
+    _drawBase(ctx, w, h, C) {
+      const dark = C.theme !== 'light';
+      ctx.clearRect(0, 0, w, h);
       const s = this.scale, S = (x, y) => this.toScreen(x, y);
       const [gx, gy] = S(0, this.R0);
 
@@ -118,7 +168,7 @@
       if (showModel) {
         for (const arm of this.model.arms) {
           if (this.modelOff.has(arm.name)) continue;
-          const col = armColor(arm.name);
+          const col = C.arm[arm.name] || C.acc;
           const cmp = this.mode === 'compare';
           this._armLine(ctx, arm.xy, col, {
             prog: this.modelProg, width: cmp ? 1 : 1.35, alpha: cmp ? 0.55 : 0.95, dash: cmp ? [5, 5] : null,
@@ -137,6 +187,19 @@
           this._armLine(ctx, arm.xy, col, { prog: this.armProg, width: 1.6, alpha: 1, glow: true, hl: this.highlightArm === arm.id,
             label: `팔 ${String.fromCharCode(65 + i)}`, labelColor: col, endDot: true });
         });
+      }
+    }
+
+    _drawTop(ctx, C) {
+      const s = this.scale, S = (x, y) => this.toScreen(x, y);
+      const [gx, gy] = S(0, this.R0), [sx0, sy0] = S(0, 0);
+      const showInfer = this.mode !== 'model' && this.infer;
+      ctx.globalAlpha = this.fade;
+      // 마우스를 올린 예상 교차점 강조
+      if (this.hover && this.hover.kind === 'cross') {
+        const [px, py] = S(this.hover.ref.x, this.hover.ref.y), r = 7;
+        ctx.strokeStyle = C.arm[this.hover.ref.arm] || C.text; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(px, py - r); ctx.lineTo(px + r, py); ctx.lineTo(px, py + r); ctx.lineTo(px - r, py); ctx.closePath(); ctx.stroke(); ctx.lineWidth = 1;
       }
       // 점
       if (showInfer) this._points(ctx, C);
@@ -163,8 +226,7 @@
       ctx.strokeStyle = C.amber; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(sx0, sy0, 5.5, 0, 7); ctx.stroke();
       ctx.fillStyle = C.amber; ctx.beginPath(); ctx.arc(sx0, sy0, 1.6, 0, 7); ctx.fill(); ctx.lineWidth = 1;
       ctx.fillText('태양', sx0 + 10, sy0 + 12);
-
-      this.o.onScale && this.o.onScale(s);
+      ctx.globalAlpha = 1;
     }
 
     _armLine(ctx, xy, col, o) {
@@ -242,8 +304,7 @@
         for (const c of sl.crossings) {
           if (this.modelOff.has(c.arm)) continue;
           const [px, py] = this.toScreen(c.x, c.y), r = 4.5;
-          const hov = this.hover && this.hover.kind === 'cross' && this.hover.ref === c;
-          ctx.fillStyle = C.surf; ctx.strokeStyle = armColor(c.arm); ctx.lineWidth = hov ? 2 : 1.4;
+          ctx.fillStyle = C.surf; ctx.strokeStyle = C.arm[c.arm] || C.acc; ctx.lineWidth = 1.4;
           ctx.beginPath(); ctx.moveTo(px, py - r); ctx.lineTo(px + r, py); ctx.lineTo(px, py + r); ctx.lineTo(px - r, py); ctx.closePath(); ctx.fill(); ctx.stroke();
         }
       }
@@ -323,18 +384,18 @@
         if (this._drag) {
           const s = this.scale;
           this.view.x -= this.mirror * (sx - this._drag.x) / s; this.view.y += (sy - this._drag.y) / s;
-          this._drag.x = sx; this._drag.y = sy; this.draw(); return;
+          this._drag.x = sx; this._drag.y = sy; this.requestDraw(); return;
         }
         const [wx, wy] = this.toWorld(sx, sy);
         this.o.onCursor && this.o.onCursor(wx, wy);
         const h = this._pick(sx, sy);
         const same = (h && this.hover && h.ref === this.hover.ref) || (!h && !this.hover);
         this.hover = h;
-        if (!same) this.draw();
+        if (!same) this.requestDraw();
         this.o.onHover && this.o.onHover(h, e.clientX, e.clientY);
         c.style.cursor = h ? 'pointer' : '';
       });
-      c.addEventListener('pointerleave', () => { this.hover = null; this.draw(); this.o.onHover && this.o.onHover(null); this.o.onCursor && this.o.onCursor(null); });
+      c.addEventListener('pointerleave', () => { this.hover = null; this.requestDraw(); this.o.onHover && this.o.onHover(null); this.o.onCursor && this.o.onCursor(null); });
       c.addEventListener('pointerdown', (e) => {
         const r = c.getBoundingClientRect();
         this._down = { x: e.clientX, y: e.clientY };
@@ -347,7 +408,7 @@
         if (click) {
           const h = this.hover;
           this.selected = h && h.kind === 'pt' ? (this.selected === h.ref.id ? null : h.ref.id) : null;
-          this.draw(); this.o.onSelect && this.o.onSelect(h);
+          this.requestDraw(); this.o.onSelect && this.o.onSelect(h);
         }
       };
       c.addEventListener('pointerup', up); c.addEventListener('pointercancel', () => { this._drag = null; });
@@ -358,7 +419,7 @@
         const ns = clamp(this.view.s * Math.exp(-e.deltaY * 0.0016), 0.45, 12);
         const B = this._base(), s1 = B.k * ns;
         this.view = { s: ns, x: wx - this.mirror * (sx - B.cx) / s1, y: wy + (sy - B.cy) / s1 };
-        this.draw();
+        this.requestDraw();
       }, { passive: false });
       c.addEventListener('dblclick', () => this.reset());
     }

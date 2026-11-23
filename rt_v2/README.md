@@ -42,7 +42,7 @@ python run.pyw        # 콘솔 창 없이 실행 (권장)
 python main_app.py    # 콘솔 로그와 함께 실행
 ```
 
-- GPU 문제로 화면이 깨지면 `RWA_SOFTWARE_GL=1` 환경 변수를 주고 실행하세요.
+- GPU 문제로 화면이 깨지면 **설정 → 하드웨어 → 그래픽 가속: 끄기** 또는 `RWA_SOFTWARE_GL=1` 로 실행하세요.
 - `RWA_DEBUG=1` 로 실행하면 <kbd>F12</kbd> 로 개발자 도구가 열립니다.
 - Windows `.exe` 빌드는 [`packaging/README.md`](packaging/README.md) 참고.
 
@@ -74,6 +74,7 @@ astro_processing · spiral_arm · data_manager · foreground_processing · moc_m
 | `run.pyw` | 런처 (콘솔 없이 실행) |
 | `main_app.py` | Qt 창 · WebEngine · QWebChannel 다리 · 파일 대화상자 |
 | `api.py` | 화면이 부르는 백엔드 API (상태·설정·프로젝트·관측·지도·나선팔) |
+| `compute.py` | 관측 처리 전용 프로세스 (다른 CPU 코어, 실패 시 스레드 폴백) |
 | `config.py` | 설정 (개발: `config.user.json`, 빌드: `%APPDATA%\RWA_HI21cm`) |
 | `data_manager.py` | 프로젝트 `.json` 입출력 · FITS 내보내기 |
 | `astro_processing.py` | **신호처리** — FFT · 도플러 · 밴드패스 · 밝기온도 · HEALPix |
@@ -89,6 +90,24 @@ astro_processing · spiral_arm · data_manager · foreground_processing · moc_m
 `chart.js`(스펙트럼), `sky.js`(전천 지도), `galaxy.js`(은하 조감도), `pages.js`(화면별 동작), `app.js`(부팅·라우터·팔레트).
 
 v1 의 Qt 위젯 화면(pyqtgraph·PyVista)은 `old_versions/qt_widgets_v1/` 에 보관되어 있습니다.
+
+---
+
+## 하드웨어 · 보안
+
+- **GPU** — 지도·애니메이션은 Qt WebEngine(Chromium)이 GPU 로 그립니다. 오래된 내장 그래픽
+  (LattePanda 의 Intel HD 등)도 Chromium 차단 목록을 무시하고 가속을 씁니다. 설정 → 하드웨어에서
+  지금 쓰는 그래픽 장치를 볼 수 있고, 문제가 있으면 끌 수 있습니다(다시 시작 후 적용).
+- **계산 프로세스** — 관측 처리(FFT·도플러·밴드패스)는 `compute.py` 의 전용 프로세스가 다른 CPU
+  코어에서 맡아, 계산 중에도 화면이 끊기지 않습니다. 못 띄우면 자동으로 앱 안 스레드로 돌아갑니다
+  (`RWA_NO_SUBPROCESS=1` 로 강제 가능).
+- **그리기** — 지도는 한 프레임에 한 번만 다시 그리고, 바뀌지 않는 층(동심원·팔·HEALPix 바탕)은
+  캐시해 두었다가 붙여 넣습니다.
+- **보안** — 화면은 앱 폴더의 `index.html` 밖으로 이동할 수 없고(새 창·끌어다 놓기·외부 링크 차단),
+  콘텐츠 보안 정책(CSP)으로 인라인 스크립트·인터넷 접속을 막습니다. 카메라·위치 등 권한 요청은 모두
+  거부하고, 캐시·쿠키를 디스크에 남기지 않습니다. 파이썬 API 는 파일 종류(.json/.fits/.wav/.bin)와
+  크기를 검사합니다. astropy 자동 다운로드도 꺼져 있어 앱은 스스로 인터넷에 접속하지 않습니다.
+  `scripts/dev_server.py` 는 127.0.0.1 에서만, 같은 출처의 요청만 받습니다.
 
 ---
 

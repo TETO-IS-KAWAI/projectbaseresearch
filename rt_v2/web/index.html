@@ -3,15 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- 콘텐츠 보안 정책: 앱 폴더(web/) 안의 파일과 Qt 의 qwebchannel.js 만 실행·로드.
+     외부 서버 접속, 인라인 스크립트, eval, 플러그인, 폼 전송은 모두 금지 -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file: qrc:; style-src 'self' file: 'unsafe-inline'; font-src 'self' file:; img-src 'self' file: data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>HI 21cm 전파망원경</title>
 <link rel="stylesheet" href="css/app.css">
-<script>
-  // 첫 페인트 전에 테마 적용 (깜빡임 방지)
-  (function () {
-    var q = new URLSearchParams(location.search).get('theme');
-    if (q === 'light' || q === 'dark') document.documentElement.dataset.theme = q;
-  })();
-</script>
+<script src="js/boot.js"></script>
 </head>
 <body>
 
@@ -424,7 +421,7 @@
 <div class="tooltip" id="tooltip" hidden></div>
 <canvas id="fx-layer"></canvas>
 
-<script src="qrc:///qtwebchannel/qwebchannel.js" onerror="void 0"></script>
+<script src="qrc:///qtwebchannel/qwebchannel.js"></script>
 <script src="js/core.js"></script>
 <script src="js/pixel.js"></script>
 <script src="js/chart.js"></script>

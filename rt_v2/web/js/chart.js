@@ -25,8 +25,13 @@
       this.c = document.createElement('canvas'); host.appendChild(this.c);
       this.pad = { l: 58, r: 18, t: 18, b: 36 };
       this.data = null; this.view = null; this.hover = null; this.reveal = 1; this.drag = null;
-      new ResizeObserver(() => this.draw()).observe(host);
+      new ResizeObserver(() => this.requestDraw()).observe(host);
       this._bind();
+    }
+    requestDraw() {
+      if (this._pending) return;
+      this._pending = true;
+      requestAnimationFrame(() => { this._pending = false; this.draw(); });
     }
     setData(d, { animate = true } = {}) {
       this.data = d;
@@ -193,9 +198,9 @@
           this.view = [a, b];
         }
         this.hover = { x, cx: e.clientX, cy: e.clientY };
-        this.draw();
+        this.requestDraw();
       });
-      c.addEventListener('pointerleave', () => { this.hover = null; tip.hide(); this.draw(); });
+      c.addEventListener('pointerleave', () => { this.hover = null; tip.hide(); this.requestDraw(); });
       c.addEventListener('pointerdown', (e) => {
         if (!this.data) return;
         c.setPointerCapture(e.pointerId);
@@ -216,7 +221,7 @@
         let na = xv - fx * span, nb = na + span;
         if (na < this.full[0]) { na = this.full[0]; nb = na + span; }
         if (nb > this.full[1]) { nb = this.full[1]; na = nb - span; }
-        this.view = [na, nb]; this.draw();
+        this.view = [na, nb]; this.requestDraw();
       }, { passive: false });
       c.addEventListener('dblclick', () => {
         if (!this.data) return;

@@ -75,7 +75,7 @@
         else if (a === 'open') RT.openProject();
         else if (a === 'close') { await backend.call('project_close'); await RT.refresh(); toast('프로젝트를 닫았습니다'); }
         else if (a === 'reveal' && p) backend.call('window_reveal', { path: p.path });
-        else if (a === 'demo') { await pages.galaxy.generateSynthetic(); RT.go('galaxy'); }
+        else if (a === 'demo') { await RT.go('galaxy'); await pages.galaxy.generateSynthetic(); }
       };
     },
     onState() { if (RT.current === 'home') this.render(); },
@@ -297,7 +297,7 @@
         },
       });
       const ui = cfg().ui?.sky || {};
-      this.proj = segmented($('#sky-proj'), (v) => { this.map.set('proj', v); this.map.view = { s: 1, ox: 0, oy: 0 }; saveUI('sky', { ...this.ui(), proj: v }); });
+      this.proj = segmented($('#sky-proj'), (v) => { this.map.view = { s: 1, ox: 0, oy: 0 }; this.map.proj = v; this.map.intro(); saveUI('sky', { ...this.ui(), proj: v }); });
       this.frame = segmented($('#sky-frame'), (v) => { this.map.set('frame', v); saveUI('sky', { ...this.ui(), frame: v }); });
       if (ui.proj) { this.proj.set(ui.proj); this.map.proj = ui.proj; }
       if (ui.frame) { this.frame.set(ui.frame); this.map.frame = ui.frame; }
@@ -327,19 +327,22 @@
       const c = cfg();
       this.map.site = { lat: c.obs_lat ?? 36.5, lon: c.obs_lon ?? 127.2 };
       this.proj.relayout(); this.frame.relayout();
+      this.map.hide();
       try {
         const sky = await backend.call('sky');
         if (!this.map.geom || this.map.geom.nside !== sky.nside) {
           this.map.setGeometry(await backend.call('sky_geometry', { nside: sky.nside }));
           this.map.fg = null; $('#sky-l-fg').checked = false; this.map.layers.fg = false;
         }
-        this.map.setData(sky);
+        this.map.setData(sky, false);
+        this.map.intro();
         this.sky = sky;
         this.stats();
         setTimeout(() => this.legend(), 30);
         if (this.pendingFocus !== undefined) { this.map.focusPixel(this.pendingFocus); this.pendingFocus = undefined; }
-      } catch (e) { toast(e.message, 'err'); }
+      } catch (e) { this.map.introT = 1; this.map.redraw(); toast(e.message, 'err'); }
     },
+    leave() { this.map.hide(); },
     stats() {
       const s = this.sky, g = this.map.geom; if (!s || !g) return;
       $('#sky-stats').innerHTML = [
@@ -424,13 +427,16 @@
       this.mode.relayout(); this.amb.relayout(); this.viewSeg.relayout();
       this.map.R0 = S().constants?.R0 || 8.15;
       $('#gal-n-syn').textContent = S().synthetic_count || 0;
-      const first = !this._loaded; this._loaded = true;
+      this._loaded = true;
+      this.map.hide();
       try {
-        const [m] = await Promise.all([backend.call('spiral_model'), this.infer(first)]);
-        this.model = m; this.map.setModel(m, first && this.opt.mode !== 'infer');
+        const [m] = await Promise.all([backend.call('spiral_model'), this.infer(false)]);
+        this.model = m; this.map.setModel(m, false);
         this.modelList();
       } catch (e) { toast(e.message, 'err'); }
+      this.map.intro();
     },
+    leave() { this.map.hide(); },
     inferSoon() { clearTimeout(this._t); this._t = setTimeout(() => this.infer(false), 160); },
     async infer(animate = false) {
       this.persist();
@@ -505,7 +511,7 @@
       try {
         const r = await backend.call('synthetic_generate', { n_dirs: 48, v_noise: 7 });
         if (RT.state) RT.state.synthetic_count = r.count;
-        $('#gal-use-syn').checked = true; this.opt.syn = true;
+        $('#gal-use-syn').checked = true; if (this.opt) this.opt.syn = true;
         toast(`합성 피크 ${r.count}개를 만들었습니다 (실제 관측 아님)`);
         if (this._loaded) await this.infer(true);
       } catch (e) { toast(e.message, 'err'); }
@@ -647,6 +653,12 @@
             <div class="field full"><label>테마</label><div class="seg" id="set-theme"><button data-v="dark" class="${c.theme === 'dark' ? 'active' : ''}">${icon('moon')}다크</button><button data-v="light" class="${c.theme === 'light' ? 'active' : ''}">${icon('sun')}라이트</button><button data-v="system" class="${c.theme === 'system' ? 'active' : ''}">시스템</button></div></div>
             <label class="switch-row full"><span>애니메이션 줄이기</span><input type="checkbox" class="switch" id="set-motion" ${c.reduce_motion ? 'checked' : ''}></label>
           </div></div>
+        <div class="card set-group"><div><h3>하드웨어</h3><p class="sg-desc">지도·애니메이션은 그래픽 카드(GPU)로 그리고, 관측 계산은 별도 프로세스가 다른 CPU 코어에서 맡아 화면이 끊기지 않게 합니다. 바꾸면 <b>다시 시작</b>할 때 적용됩니다.</p></div>
+          <div class="set-fields">
+            <div class="field full"><label>그래픽 가속</label><div class="seg" id="set-gpu"><button data-v="auto" class="${c.gpu_accel !== 'off' ? 'active' : ''}">GPU 사용</button><button data-v="off" class="${c.gpu_accel === 'off' ? 'active' : ''}">끄기 (소프트웨어)</button></div></div>
+            <div class="field full"><label>지금 그리는 장치</label><div class="readout" id="set-gpu-now" style="min-height:36px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"></div></div>
+            <label class="switch-row full"><span>관측 계산을 별도 프로세스에서 <span class="muted mono" id="set-compute-now"></span></span><input type="checkbox" class="switch" id="set-compute" ${c.compute_process ? 'checked' : ''}></label>
+          </div></div>
         <div class="card set-group"><div><h3>저장 위치</h3><p class="sg-desc">설정과 프로젝트 파일이 저장되는 폴더입니다.</p></div>
           <div class="set-fields">
             <div class="field full"><label>프로젝트 폴더</label><div class="path-box"><span>${esc(c.projects_dir || '')}</span><button class="btn btn-ghost btn-sm" data-reveal="${esc(c.projects_dir || '')}">${icon('reveal')}열기</button></div></div>
@@ -670,6 +682,12 @@
       segmented($('#set-method'), (v) => this.queue({ temp_method: v }));
       segmented($('#set-theme'), (v) => RT.setTheme(v));
       $('#set-motion').onchange = (e) => { RT.setMotion(e.target.checked); };
+      const g = RT.gpuInfo(), sys = S().system || {};
+      $('#set-gpu-now').innerHTML = `<span class="badge ${g.accelerated ? 'accent' : 'warn'}">${g.accelerated ? 'GPU' : '소프트웨어'}</span><span>${esc(g.name)}</span>`;
+      const cm = sys.compute || {};
+      $('#set-compute-now').textContent = cm.mode ? `· 지금: ${cm.mode === 'process' ? '별도 프로세스' : '앱 안 스레드'} · CPU ${cm.cpus}코어` : '';
+      segmented($('#set-gpu'), (v) => { this.queue({ gpu_accel: v }); toast('다시 시작하면 적용됩니다', 'warn'); });
+      $('#set-compute').onchange = (e) => { this.queue({ compute_process: e.target.checked }); toast('다시 시작하면 적용됩니다', 'warn'); };
       $$('[data-reveal]', box).forEach((b) => b.onclick = () => backend.call('window_reveal', { path: b.dataset.reveal }));
     },
     queue(ch) {

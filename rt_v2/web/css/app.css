@@ -42,6 +42,7 @@
   --accent-soft: rgba(90,240,196,.11); --accent-line: rgba(90,240,196,.32);
   --red: #ff5a52; --amber: #f5a524; --blue: #52a8ff; --violet: #a78bfa; --green: #45d483;
   --glass: rgba(16,16,18,.72);
+  --panel-bg: rgba(15,15,17,.94);
   --shadow-sm: 0 1px 2px rgba(0,0,0,.4);
   --shadow: 0 0 0 1px var(--line), 0 12px 32px -8px rgba(0,0,0,.6);
   --shadow-lg: 0 0 0 1px var(--line-2), 0 24px 64px -12px rgba(0,0,0,.75);
@@ -58,6 +59,7 @@
   --accent-soft: rgba(0,163,122,.09); --accent-line: rgba(0,163,122,.35);
   --red: #e5383b; --amber: #d48806; --blue: #1677ff; --violet: #7c5ce0; --green: #1f9d55;
   --glass: rgba(255,255,255,.78);
+  --panel-bg: rgba(255,255,255,.95);
   --shadow-sm: 0 1px 2px rgba(0,0,0,.06);
   --shadow: 0 0 0 1px var(--line), 0 8px 24px -10px rgba(0,0,0,.12);
   --shadow-lg: 0 0 0 1px var(--line-2), 0 24px 56px -16px rgba(0,0,0,.22);
@@ -209,6 +211,16 @@ kbd {
   animation: rise .6s var(--ease-out) both; animation-delay: calc(var(--i, 0) * 45ms + 40ms);
 }
 .page.leave { visibility: visible; animation: fadeOut .18s var(--ease) both; pointer-events: none; }
+.page.enter .stage > .stage-head { animation: rise .6s var(--ease-out) both .02s; }
+.page.enter .stage > .float-bar { animation: rise .6s var(--ease-out) both .12s; }
+.page.enter .stage > .float-panel { animation: panelIn .75s var(--ease-out) both .18s; }
+.page.enter .stage > .zoom-ctl, .page.enter .stage > .scalebar { animation: rise .6s var(--ease-out) both .5s; }
+.page.enter .stage > .float-panel .fp-sec { animation: rise .55s var(--ease-out) both .2s; }
+.page.enter .stage > .float-panel .fp-sec:nth-child(2) { animation-delay: .26s; }
+.page.enter .stage > .float-panel .fp-sec:nth-child(3) { animation-delay: .32s; }
+.page.enter .stage > .float-panel .fp-sec:nth-child(4) { animation-delay: .38s; }
+.page.enter .stage > .float-panel .fp-sec:nth-child(n+5) { animation-delay: .44s; }
+@keyframes panelIn { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
 @keyframes rise { from { opacity: 0; transform: translateY(10px); filter: blur(3px); } to { opacity: 1; transform: none; filter: none; } }
 @keyframes fadeOut { to { opacity: 0; transform: translateY(-4px); } }
 .page:not(.page-full) {
@@ -518,7 +530,9 @@ select option { background: var(--surface); color: var(--text); }
 .float-bar .seg { background: var(--glass); backdrop-filter: blur(14px) saturate(160%); box-shadow: var(--shadow); }
 .float-panel {
   position: absolute; z-index: 3; top: 16px; bottom: 16px; width: 280px; overflow-y: auto; overflow-x: hidden;
-  background: var(--glass); backdrop-filter: blur(18px) saturate(160%);
+  /* 지도는 매 프레임 다시 그려지므로, 그 위의 큰 패널에 배경 흐림(backdrop-filter)을 걸면
+     GPU 가 매 프레임 흐림을 다시 계산한다 → 저사양에서 버벅임. 거의 불투명한 배경으로 대신 */
+  background: var(--panel-bg);
   border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow);
 }
 .float-panel.right { right: 16px; }

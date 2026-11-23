@@ -71,6 +71,10 @@ class Bridge(QObject):
         self._done.connect(self.response, Qt.ConnectionType.QueuedConnection)
         self._evt.connect(self.event, Qt.ConnectionType.QueuedConnection)
 
+    def shutdown(self) -> None:
+        self._api.close()
+        self._pool.shutdown(wait=False, cancel_futures=True)
+
     @Slot(str, str, str)
     def request(self, rid: str, method: str, args_json: str) -> None:
         try:
@@ -78,13 +82,19 @@ class Bridge(QObject):
         except json.JSONDecodeError:
             args = {}
         if method.startswith('dialog_') or method.startswith('window_'):
-            try:
-                data = getattr(self, f'_ui_{method}')(**args)
-                out = {'ok': True, 'data': data}
-            except Exception as e:
-                out = {'ok': False, 'error': str(e)}
+            fn = getattr(self, f'_ui_{method}', None)
+            if fn is None or not isinstance(args, dict):
+                out = {'ok': False, 'error': f'알 수 없는 요청: {method}'}
+            else:
+                try:
+                    out = {'ok': True, 'data': fn(**args)}
+                except Exception as e:
+                    out = {'ok': False, 'error': str(e)}
             self.response.emit(rid, json.dumps(out, ensure_ascii=False))
             return
+
+        if not isinstance(args, dict):
+            args = {}
 
         def run():
             res = self._api.dispatch(method, args)
@@ -140,7 +150,9 @@ class Bridge(QObject):
 
     def _ui_window_reveal(self, path: str):
         p = Path(path)
-        if sys.platform == 'win32' and p.exists():
+        if not p.exists():
+            return {}
+        if sys.platform == 'win32':
             subprocess.Popen(['explorer', '/select,', str(p)])
         elif p.exists():
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(p if p.is_dir() else p.parent)))
@@ -159,11 +171,48 @@ class Bridge(QObject):
         return {}
 
 
+def _make_secure_page(profile, parent, home: Path):
+    """앱 화면 전용 페이지: 우리 index.html 밖으로는 절대 나가지 않는다.
+
+    QWebChannel 의 backend 객체는 '이 페이지에 로드된 모든 문서'가 부를 수 있다.
+    끌어다 놓은 링크·팝업 등으로 외부 페이지가 열리면 그 페이지도 파일을 쓰는
+    API 를 부를 수 있게 되므로, 탐색·새 창·권한 요청을 모두 막는다.
+    """
+    from PySide6.QtWebEngineCore import QWebEnginePage
+
+    home_path = str(home.resolve()).replace('\\', '/').lower()
+
+    class SecurePage(QWebEnginePage):
+        def acceptNavigationRequest(self, url, nav_type, is_main_frame):
+            if url.isLocalFile() and url.toLocalFile().replace('\\', '/').lower() == home_path:
+                return True                                   # 앱 첫 화면(쿼리만 다른 것 포함)
+            if nav_type == QWebEnginePage.NavigationType.NavigationTypeLinkClicked \
+                    and url.scheme() in ('http', 'https'):
+                QDesktopServices.openUrl(url)                 # 링크는 기본 브라우저로
+            return False                                      # 그 밖의 이동은 전부 차단
+
+        def createWindow(self, _type):
+            return None                                       # window.open / 새 창 차단
+
+    page = SecurePage(profile, parent)
+    # 카메라·마이크·위치·알림 등 권한 요청은 모두 거부
+    try:
+        page.permissionRequested.connect(lambda perm: perm.deny())
+    except AttributeError:                                    # Qt < 6.8
+        try:
+            page.featurePermissionRequested.connect(
+                lambda origin, feature: page.setFeaturePermission(
+                    origin, feature, QWebEnginePage.PermissionPolicy.PermissionDeniedByUser))
+        except AttributeError:
+            pass
+    return page
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         from PySide6.QtWebChannel import QWebChannel
-        from PySide6.QtWebEngineCore import QWebEngineSettings
+        from PySide6.QtWebEngineCore import QWebEngineProfile, QWebEngineSettings
         from PySide6.QtWebEngineWidgets import QWebEngineView
 
         cfg = Config.get()
@@ -177,23 +226,32 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1080, 680)
         self.setStyleSheet(f'QMainWindow{{background:{_BG[theme]};}}')
 
+        index = WEB_DIR / 'index.html'
         self.view = QWebEngineView(self)
+        self.view.setAcceptDrops(False)        # 파일·링크를 끌어다 놓아 다른 페이지로 바뀌는 것 방지
         self.view.setContextMenuPolicy(
             Qt.ContextMenuPolicy.DefaultContextMenu if os.environ.get('RWA_DEBUG')
             else Qt.ContextMenuPolicy.NoContextMenu)
-        page = self.view.page()
+        # 디스크에 캐시·쿠키를 남기지 않는 일회용 프로필 + 잠긴 페이지
+        self._profile = QWebEngineProfile(self)
+        page = _make_secure_page(self._profile, self.view, index)
+        self.view.setPage(page)
         page.setBackgroundColor(QColor(_BG[theme]))
         s = page.settings()
-        s.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
-        s.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, False)
-        s.setAttribute(QWebEngineSettings.WebAttribute.ScrollAnimatorEnabled, True)
+        W = QWebEngineSettings.WebAttribute
+        s.setAttribute(W.LocalContentCanAccessFileUrls, True)     # web/ 안의 글꼴·스크립트 읽기
+        s.setAttribute(W.LocalContentCanAccessRemoteUrls, False)  # 인터넷 접근 없음
+        s.setAttribute(W.JavascriptCanOpenWindows, False)
+        s.setAttribute(W.JavascriptCanAccessClipboard, False)
+        s.setAttribute(W.PluginsEnabled, False)
+        s.setAttribute(W.PdfViewerEnabled, False)
+        s.setAttribute(W.ScrollAnimatorEnabled, True)
 
         self.bridge = Bridge(self)
         self.channel = QWebChannel(page)
         self.channel.registerObject('backend', self.bridge)
         page.setWebChannel(self.channel)
 
-        index = WEB_DIR / 'index.html'
         url = QUrl.fromLocalFile(str(index))
         url.setQuery(f'theme={theme}')
         self.view.setUrl(url)
@@ -202,6 +260,14 @@ class MainWindow(QMainWindow):
         self._devtools = None
         QShortcut(QKeySequence('F12'), self, activated=self.open_devtools)
         _set_dark_titlebar(self, theme == 'dark')
+
+    def closeEvent(self, e):
+        # 관측 계산 프로세스 정리
+        try:
+            self.bridge.shutdown()
+        except Exception:
+            pass
+        super().closeEvent(e)
 
     def open_devtools(self):
         if not os.environ.get('RWA_DEBUG'):
@@ -215,6 +281,22 @@ class MainWindow(QMainWindow):
         self._devtools.show()
 
 
+def chromium_flags(gpu_accel: str) -> str:
+    """그래픽 가속 설정 → Chromium(Qt WebEngine) 실행 옵션.
+
+    auto : GPU 사용. 오래된 내장 그래픽(LattePanda 의 Intel HD 등)은 Chromium 이
+           '차단 목록'에 올려 캔버스를 CPU 로 그리는데, 이를 무시하고 GPU 로 그리게 한다.
+    off  : 소프트웨어 렌더링 (드라이버 문제로 화면이 깨질 때). RWA_SOFTWARE_GL=1 도 같음.
+    """
+    flags = os.environ.get('QTWEBENGINE_CHROMIUM_FLAGS', '').split()
+    if gpu_accel == 'off' or os.environ.get('RWA_SOFTWARE_GL'):
+        flags += ['--disable-gpu', '--disable-gpu-compositing']
+    else:
+        flags += ['--ignore-gpu-blocklist', '--enable-gpu-rasterization',
+                  '--enable-accelerated-2d-canvas']
+    return ' '.join(dict.fromkeys(flags))
+
+
 def main():
     if sys.platform == 'win32':
         try:
@@ -222,11 +304,8 @@ def main():
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
         except Exception:
             pass
-    # 캔버스 애니메이션을 부드럽게 (GPU 가 문제면 RWA_SOFTWARE_GL=1 로 끌 수 있음)
-    flags = os.environ.get('QTWEBENGINE_CHROMIUM_FLAGS', '')
-    if os.environ.get('RWA_SOFTWARE_GL'):
-        flags += ' --disable-gpu'
-    os.environ['QTWEBENGINE_CHROMIUM_FLAGS'] = flags.strip()
+    # Qt WebEngine 옵션은 QApplication 을 만들기 전에 정해야 한다
+    os.environ['QTWEBENGINE_CHROMIUM_FLAGS'] = chromium_flags(Config.get().gpu_accel)
 
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
     app = QApplication(sys.argv)
@@ -238,4 +317,6 @@ def main():
 
 
 if __name__ == '__main__':
+    import multiprocessing
+    multiprocessing.freeze_support()
     main()

@@ -9,12 +9,14 @@ run.pyw — HI 21cm 전파망원경 GUI 런처
 flat import 구조라서 이 폴더를 모듈 검색 경로 맨 앞에 추가합니다.
 """
 
+import multiprocessing
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from main_app import main
-
 if __name__ == '__main__':
+    # PyInstaller 빌드에서 관측 계산 프로세스(compute.py)가 자기 일만 하고 끝나게 한다
+    multiprocessing.freeze_support()
+    from main_app import main
     main()

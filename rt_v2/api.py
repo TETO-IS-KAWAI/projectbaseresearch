@@ -14,6 +14,9 @@ from __future__ import annotations
 import base64
 import json
 import math
+import os
+import platform
+import threading
 import time
 import traceback
 from datetime import datetime, timezone
@@ -31,6 +34,7 @@ from astro_processing import (
     HI_FREQ_HZ, R_SUN_KPC, V_CIRC_KMS,
     process_observation, icrs_to_galactic, galactocentric_velocity,
 )
+from compute import ComputePool
 from spiral_arm import (
     analyze_observation, velocity_to_distance, get_reference_spiral_arms,
     infer_spiral_arms, predict_sightline_crossings, synthetic_arm_peaks,
@@ -109,6 +113,21 @@ class ApiError(Exception):
     """사용자에게 그대로 보여줄 오류 메시지."""
 
 
+_MAX_PROJECT_BYTES = 200 * 1024 * 1024     # 프로젝트 JSON 최대 크기 (메모리 보호)
+
+
+def _checked_path(path, exts: tuple, must_exist: bool = False, what: str = '파일') -> Path:
+    """화면에서 넘어온 경로 검증: 확장자 제한, (필요하면) 존재 확인."""
+    if not path or not isinstance(path, str) or '\x00' in path:
+        raise ApiError(f'{what} 경로가 올바르지 않습니다')
+    p = Path(path).expanduser()
+    if p.suffix.lower() not in exts:
+        raise ApiError(f'{what}은(는) {", ".join(exts)} 형식이어야 합니다')
+    if must_exist and not p.is_file():
+        raise ApiError(f'파일이 없습니다: {p.name}')
+    return p
+
+
 # ═══════════════════════════════════════════════════════════
 # API
 # ═══════════════════════════════════════════════════════════
@@ -116,13 +135,22 @@ class ApiError(Exception):
 class Api:
     """프런트엔드가 호출하는 백엔드. 상태(설정·프로젝트·합성 데이터)를 보관."""
 
-    def __init__(self, emit: Optional[Callable[[str, dict], None]] = None):
+    def __init__(self, emit: Optional[Callable[[str, dict], None]] = None,
+                 use_subprocess: Optional[bool] = None):
         self._emit = emit or (lambda name, payload: None)
         self.cfg = Config.get()
         self.proj = get_project()
         self._synthetic: list[dict] = []
         self._geom_cache: dict[int, dict] = {}
         self._last: Optional[dict] = None
+        # 관측 계산 전용 프로세스 — 앱이 뜨는 동안 백그라운드에서 미리 띄워 둔다
+        self.compute = ComputePool()
+        use = self.cfg.compute_process if use_subprocess is None else use_subprocess
+        if use:
+            threading.Thread(target=self.compute.start, name='rt-compute-start', daemon=True).start()
+
+    def close(self) -> None:
+        self.compute.close()
 
     # ── 디스패치 ─────────────────────────────────────────────
 
@@ -149,6 +177,7 @@ class Api:
             sample_rate=c.sample_rate, nfft=c.nfft, T_sys=c.T_sys, G_sys=c.G_sys,
             nside=c.nside, temp_method=c.temp_method, theme=c.theme,
             reduce_motion=c.reduce_motion, fg_scale=c.fg_scale, ui=c.ui,
+            gpu_accel=c.gpu_accel, compute_process=c.compute_process,
             projects_dir=str(c.projects_dir_path), data_dir=str(c.data_dir_path),
             velocity_resolution_kms=c.velocity_resolution_kms,
         )
@@ -180,15 +209,21 @@ class Api:
             recent=self._recent(),
             features=dict(mocpy=has_moc, fg_fits=find_foreground_fits() is not None),
             constants=dict(R0=R_SUN_KPC, V0=V_CIRC_KMS, HI_FREQ_HZ=HI_FREQ_HZ),
+            system=self._system(),
             synthetic_count=len(self._synthetic),
             has_last=self._last is not None,
         )
+
+    def _system(self) -> dict:
+        return dict(compute=self.compute.info(), python=platform.python_version(),
+                    os=f'{platform.system()} {platform.release()}',
+                    gpu_accel=self.cfg.gpu_accel, gpu_forced_off=bool(os.environ.get('RWA_SOFTWARE_GL')))
 
     _CONFIG_TYPES = dict(
         obs_name=str, obs_lat=float, obs_lon=float, obs_height_m=float,
         center_freq_hz=float, sample_rate=float, nfft=int, T_sys=float, G_sys=float,
         nside=int, temp_method=str, theme=str, reduce_motion=bool, fg_scale=float,
-        ui=dict,
+        ui=dict, gpu_accel=str, compute_process=bool,
     )
 
     def api_config_update(self, **changes) -> dict:
@@ -214,6 +249,8 @@ class Api:
                 raise ApiError('대푯값 방식이 올바르지 않습니다')
             if k == 'theme' and val not in ('dark', 'light', 'system'):
                 raise ApiError('테마 값이 올바르지 않습니다')
+            if k == 'gpu_accel' and val not in ('auto', 'off'):
+                raise ApiError('그래픽 가속 값이 올바르지 않습니다')
             if k == 'ui':
                 merged = dict(self.cfg.ui)
                 merged.update(val)
@@ -235,15 +272,21 @@ class Api:
     @staticmethod
     def _peek_project(path: Path) -> Optional[dict]:
         try:
+            if path.stat().st_size > _MAX_PROJECT_BYTES:
+                return None
             with open(path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             meta = data.get('meta', {})
             obs = data.get('observations', [])
             if not isinstance(obs, list):
                 return None
-            return dict(path=str(path), name=meta.get('name', path.stem),
-                        obs=len(obs), nside=meta.get('nside'),
-                        created=meta.get('created', ''),
+            try:
+                nside = int(meta.get('nside')) if meta.get('nside') is not None else None
+            except (TypeError, ValueError):
+                nside = None
+            return dict(path=str(path), name=str(meta.get('name', path.stem))[:200],
+                        obs=len(obs), nside=nside,
+                        created=str(meta.get('created', ''))[:40],
                         mtime=path.stat().st_mtime,
                         peaks=sum(len(o.get('spiral_peaks', [])) for o in obs))
         except Exception:
@@ -277,7 +320,7 @@ class Api:
         if not name:
             raise ApiError('프로젝트 이름을 입력하세요')
         if path:
-            target = Path(path)
+            target = _checked_path(path, ('.json',), what='프로젝트')
         else:
             safe = ''.join(ch for ch in name if ch not in '\\/:*?"<>|').strip() or 'project'
             target = self.cfg.projects_dir_path / f'{safe}.json'
@@ -293,9 +336,9 @@ class Api:
         return self.api_state()
 
     def api_project_open(self, path: str) -> dict:
-        p = Path(path)
-        if not p.is_file():
-            raise ApiError(f'파일이 없습니다: {p}')
+        p = _checked_path(path, ('.json',), must_exist=True, what='프로젝트')
+        if p.stat().st_size > _MAX_PROJECT_BYTES:
+            raise ApiError('프로젝트 파일이 너무 큽니다 (200MB 초과)')
         try:
             self.proj.open(p)
         except Exception as e:
@@ -375,9 +418,7 @@ class Api:
         if source == 'file':
             if not file_path:
                 raise ApiError('SDR 데이터 파일을 선택하세요')
-            fp = Path(file_path)
-            if not fp.is_file():
-                raise ApiError(f'파일이 없습니다: {fp.name}')
+            fp = _checked_path(file_path, ('.wav', '.bin'), must_exist=True, what='SDR 데이터')
             if fp.suffix.lower() == '.wav':
                 wav = str(fp)
             else:
@@ -389,14 +430,16 @@ class Api:
         def step(name):
             self._emit('progress', dict(step=name, t=time.perf_counter() - t0))
 
-        result = process_observation(
+        params = dict(
             ra_deg=ra_deg, dec_deg=dec_deg, obs_time=obs_time,
             obs_lat=cfg.obs_lat, obs_lon=cfg.obs_lon, obs_height_m=cfg.obs_height_m,
             bin_filepath=bin_, wav_filepath=wav,
             center_freq_hz=cfg.center_freq_hz, sample_rate=cfg.sample_rate,
             nfft=cfg.nfft, T_sys=cfg.T_sys, G_sys=cfg.G_sys,
-            temp_method=method, seed=seed, progress=step,
+            temp_method=method, seed=seed,
         )
+        # 별도 프로세스(다른 CPU 코어)에서 계산 — 실패하면 자동으로 이 스레드에서
+        result = self.compute.run(params, step)
         result['obs_time'] = obs_time
         result['source'] = 'file' if source == 'file' else 'sim'
         result['temp_method'] = method
@@ -451,7 +494,7 @@ class Api:
             v_tan=gc['v_tangent_kms'],
             d_near=gc['kinematic_distance_near_kpc'], d_far=gc['kinematic_distance_far_kpc'],
             in_inner=gc['in_inner_galaxy'],
-            elapsed=time.perf_counter() - t0, saved=saved,
+            elapsed=time.perf_counter() - t0, saved=saved, compute=self.compute.mode,
         )
         step('done')
         self._last = dict(summary=summary, spectrum=spectrum, peaks=peaks)
@@ -579,7 +622,7 @@ class Api:
     def api_export_fits(self, path: str) -> dict:
         if not self.proj.is_open:
             raise ApiError('열린 프로젝트가 없습니다')
-        out = self.proj.export_fits(path)
+        out = self.proj.export_fits(_checked_path(path, ('.fits', '.fit'), what='FITS'))
         return dict(path=str(out))
 
     def api_export_moc(self, path: str) -> dict:
@@ -589,7 +632,7 @@ class Api:
         mm = MocManager(self.proj.nside)
         mm.add_from_project(self.proj.observations)
         try:
-            out = mm.save(path)
+            out = mm.save(_checked_path(path, ('.fits', '.fit'), what='MOC'))
         except RuntimeError as e:
             raise ApiError(str(e))
         return dict(path=str(out), coverage=mm.coverage_fraction())

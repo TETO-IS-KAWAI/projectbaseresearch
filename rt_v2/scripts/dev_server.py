@@ -55,7 +55,19 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _local_only(self) -> bool:
+        """DNS 리바인딩·다른 사이트의 요청 차단: Host 는 127.0.0.1/localhost,
+        Origin 이 있으면 이 서버 자신이어야 한다."""
+        host = (self.headers.get('Host') or '').split(':')[0]
+        if host not in ('127.0.0.1', 'localhost'):
+            return False
+        origin = self.headers.get('Origin')
+        port = self.server.server_address[1]
+        return origin is None or origin in (f'http://127.0.0.1:{port}', f'http://localhost:{port}')
+
     def do_GET(self):
+        if not self._local_only():
+            return self._send(403, b'forbidden', 'text/plain')
         path = self.path.split('?', 1)[0]
         if path == '/api/events':
             with _ev_lock:
@@ -71,6 +83,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path != '/api':
             return self._send(404, b'not found', 'text/plain')
+        if not self._local_only() or 'application/json' not in (self.headers.get('Content-Type') or ''):
+            return self._send(403, b'forbidden', 'text/plain')
         n = int(self.headers.get('Content-Length', 0))
         req = json.loads(self.rfile.read(n) or b'{}')
         method, args = req.get('method', ''), req.get('args') or {}
