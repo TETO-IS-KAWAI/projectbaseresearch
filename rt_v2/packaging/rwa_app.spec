@@ -25,6 +25,32 @@ from PyInstaller.utils.hooks import collect_all, collect_submodules
 ROOT  = Path(globals().get('SPECPATH', os.getcwd())).resolve().parent
 ENTRY = str(ROOT / 'run.pyw')
 
+# 앱 버전: api.APP_VERSION 하나만 고치면 exe 속성·설치 파일 이름이 함께 바뀐다
+import re as _re0
+APP_VERSION = _re0.search(r"APP_VERSION\s*=\s*'([\d.]+)'", (ROOT / 'api.py').read_text(encoding='utf-8')).group(1)
+
+# exe 파일 속성(자세히 탭)에 표시될 정보
+from PyInstaller.utils.win32.versioninfo import (
+    VSVersionInfo, FixedFileInfo, StringFileInfo, StringTable, StringStruct, VarFileInfo, VarStruct)
+_vt = tuple(int(x) for x in (APP_VERSION.split('.') + ['0'] * 4)[:4])
+VERSION_INFO = VSVersionInfo(
+    ffi=FixedFileInfo(filevers=_vt, prodvers=_vt, mask=0x3F, flags=0x0, OS=0x40004,
+                      fileType=0x1, subtype=0x0, date=(0, 0)),
+    kids=[
+        StringFileInfo([StringTable('041204B0', [
+            StringStruct('CompanyName', 'Team RWA (SASA 10th)'),
+            StringStruct('FileDescription', 'HI 21cm 전파망원경'),
+            StringStruct('FileVersion', APP_VERSION),
+            StringStruct('InternalName', 'RWA_HI21cm'),
+            StringStruct('LegalCopyright', '© 2026 Team RWA · MIT License'),
+            StringStruct('OriginalFilename', 'RWA_HI21cm.exe'),
+            StringStruct('ProductName', 'HI 21cm Radio Telescope'),
+            StringStruct('ProductVersion', APP_VERSION),
+        ])]),
+        VarFileInfo([VarStruct('Translation', [0x0412, 1200])]),
+    ],
+)
+
 datas, binaries, hiddenimports = [], [], []
 
 # 번들이 까다로운 패키지(데이터 파일·네이티브 DLL 포함)는 통째로 수집
@@ -41,7 +67,7 @@ hiddenimports += collect_submodules('scipy')
 
 # api.py 가 함수 안에서 지연 import 하는 모듈 + Qt WebEngine/WebChannel
 hiddenimports += [
-    'api', 'foreground_processing', 'moc_manager',
+    'api', 'compute', 'foreground_processing', 'moc_manager',
     'PySide6.QtWebEngineWidgets', 'PySide6.QtWebEngineCore', 'PySide6.QtWebChannel',
 ]
 
@@ -65,6 +91,10 @@ a = Analysis(
         # 환경에 깔려 딸려오던 대용량/개발 패키지
         'torch', 'torchvision', 'torchaudio', 'tensorflow', 'numba',
         'jedi', 'IPython', 'notebook', 'pytest', 'sphinx', 'pythonwin',
+        # pywin32 — 앱이 쓰지 않는데 환경에 있어 딸려오던 것
+        'win32', 'win32api', 'win32con', 'win32com', 'win32ui', 'pythoncom', 'pywintypes',
+        'win32evtlog', 'win32evtlogutil', 'win32pdh', 'win32security', 'win32timezone',
+        'pygame',
     ],
     noarchive=False,
 )
@@ -121,6 +151,7 @@ exe = EXE(
     strip=False,
     upx=False,                 # UPX 는 Qt WebEngine DLL 을 깨뜨릴 수 있어 끔
     console=False,             # GUI 앱 (콘솔 창 없음)
+    version=VERSION_INFO,
     disable_windowed_traceback=False,
     icon=str(ROOT / 'assets' / 'icons' / 'app.ico'),
 )
