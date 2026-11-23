@@ -23,11 +23,11 @@ from typing import Optional
 import numpy as np
 from scipy.signal import find_peaks, peak_prominences
 
-from astro_processing import HI_FREQ_HZ, icrs_to_galactic
+from astro_processing import (
+    HI_FREQ_HZ, icrs_to_galactic, R_SUN_KPC, V_CIRC_KMS,
+)
 
-# ── 은하 모델 상수 (IAU 권고 + Brand & Blitz 1993)
-R_SUN_KPC   = 8.5     # 태양~은하 중심 거리 [kpc]
-V_CIRC_KMS  = 220.0   # 은하 원형 속도 [km/s]
+# ── 은하 모델 상수: R₀=8.15 kpc, Θ₀=236 km/s (Reid+2019, astro_processing 에서 정의)
 C_KMS       = 299792.458
 
 
@@ -215,27 +215,40 @@ def velocity_to_distance(
         return dict(d_near_kpc=np.nan, d_far_kpc=np.nan,
                     R_kpc=float(R), in_inner=in_inner, valid=False)
 
-    sqrt_d   = np.sqrt(disc)
-    d_near   = max(R_sun * np.cos(l) - sqrt_d, 0.0)
-    d_far    = R_sun * np.cos(l) + sqrt_d
+    sqrt_d = np.sqrt(disc)
+    d1 = R_sun * np.cos(l) - sqrt_d
+    d2 = R_sun * np.cos(l) + sqrt_d
 
-    # 은하면 보정 (경사 보정)
+    # 물리적인 해는 d > 0 뿐이다.
+    #   · 내부 은하(R<R₀) + 1·4사분면  → 두 해 모두 양수 → 근/원거리 모호성
+    #   · 외부 은하(R>R₀)              → d2 하나만 양수 → 유일해
+    #   · 내부 은하인데 2·3사분면(cos l<0) → 두 해 모두 음수 → '금지 속도', 거리 없음
+    sols = [d for d in (d1, d2) if d > 1e-3]
+    if not sols:
+        return dict(d_near_kpc=np.nan, d_far_kpc=np.nan, R_kpc=float(R),
+                    in_inner=bool(in_inner), valid=False, ambiguous=False)
+    ambiguous = len(sols) == 2 and (d2 - d1) > 0.05
+    d_near, d_far = (d1, d2) if ambiguous else (sols[-1], sols[-1])
+
+    # 위 해는 은하면 투영 거리 → 시선 거리로 환산 (경사 보정)
     d_near /= abs(cos_b) if abs(cos_b) > 0.1 else 1.0
     d_far  /= abs(cos_b) if abs(cos_b) > 0.1 else 1.0
 
     return dict(d_near_kpc=float(d_near), d_far_kpc=float(d_far),
-                R_kpc=float(R), in_inner=bool(in_inner), valid=True)
+                R_kpc=float(R), in_inner=bool(in_inner), valid=True,
+                ambiguous=bool(ambiguous))
 
 
-def distance_to_xy(d_kpc: float, l_deg: float) -> tuple:
+def distance_to_xy(d_kpc: float, l_deg: float, b_deg: float = 0.0) -> tuple:
     """
-    시선 거리 + 은하 경도 → 조감도 XY 좌표 [kpc].
-    원점 = 태양 위치.
-    X축: 태양→은하 중심 방향.
+    시선 거리 + 은하 경도(+위도) → 조감도 XY 좌표 [kpc].
+    원점 = 태양 위치.  +Y: 태양→은하 중심,  +X: 은하 회전 방향(l=90°).
+    시선 거리를 은하면에 투영(d·cos b)해서 찍는다.
     """
     l = np.radians(l_deg)
-    x = d_kpc * np.sin(l)     # 은하 회전 방향 (시계 반대)
-    y = d_kpc * np.cos(l)     # 태양→은하 중심 방향
+    d = d_kpc * np.cos(np.radians(b_deg))
+    x = d * np.sin(l)     # 은하 회전 방향 (시계 반대)
+    y = d * np.cos(l)     # 태양→은하 중심 방향
     return float(x), float(y)
 
 
@@ -270,8 +283,8 @@ def analyze_observation(result: dict) -> SpiralArmResult:
 
     for p in raw_peaks:
         dist = velocity_to_distance(p['v_lsr_kms'], l_deg, b_deg)
-        xn, yn = distance_to_xy(dist['d_near_kpc'], l_deg)
-        xf, yf = distance_to_xy(dist['d_far_kpc'],  l_deg)
+        xn, yn = distance_to_xy(dist['d_near_kpc'], l_deg, b_deg)
+        xf, yf = distance_to_xy(dist['d_far_kpc'],  l_deg, b_deg)
 
         arm_result.peaks.append(VelocityPeak(
             v_lsr_kms   = p['v_lsr_kms'],
@@ -328,6 +341,375 @@ def get_reference_spiral_arms() -> dict:
         'Outer':          {'xy': log_spiral(13.0, 11.5, -5, 260), 'color': '#aa44ff'},
     }
     return arms
+
+
+# ═══════════════════════════════════════════════════════════
+# 5. 데이터 기반 나선팔 추론  (관측 점 → 로그 나선, 허프 변환)
+# ═══════════════════════════════════════════════════════════
+#
+# 아이디어
+#   후행 로그 나선  r = r₀·exp(−k(θ−θ₀)),  k = tan ψ (피치각)
+#   로그를 취하면  ln r + k·θ = 상수.  이 값을 '나선 위상' ξ 라 하면
+#   같은 팔 위의 점은 (ψ 만 맞으면) 모두 같은 ξ 를 갖는다.
+#   → 각 점이 (ψ, ξ) 평면에 '투표'하면 팔 하나가 봉우리 하나로 모인다.
+#     직선을 찾는 허프 변환을 로그 나선에 적용한 것.
+#
+# 절차 (순차 허프 / RANSAC 방식)
+#   1) 각 HI 피크 → 운동학적 거리 후보(근/원) → 은하중심 극좌표 (r, θ)
+#      모호한 점은 두 후보가 0.5표씩 나눠 투표한다.
+#   2) 투표 수(가우스 가중)가 가장 큰 (ψ, ξ) 를 고르고, 허용 폭 τ 안의
+#      점들로 최소제곱 재맞춤(ln r = ξ − kθ) → 팔 하나 확정
+#   3) 그 점들을 빼고 2) 반복. 점이 부족하거나 θ 로 충분히 길게
+#      이어지지 않으면(덩어리) 멈춘다.  → 팔 개수·팔별 피치각이 저절로 결정.
+#
+# θ 규약: 은하중심에서 본 방위각, 0 = 태양 방향, 은하 회전 방향(+X)으로 증가
+#         x = r·sinθ,  y = R₀ − r·cosθ   (get_reference_spiral_arms 와 동일)
+
+
+def galactocentric_polar(x, y, R0: float = R_SUN_KPC):
+    """조감도 XY(태양 원점) → 은하중심 극좌표 (r [kpc], θ [rad])."""
+    x = np.asarray(x, float)
+    y = np.asarray(y, float)
+    return np.hypot(x, R0 - y), np.arctan2(x, R0 - y)
+
+
+def spiral_xy(xi: float, pitch_deg: float, theta_min: float, theta_max: float,
+              n: int = 160, R0: float = R_SUN_KPC):
+    """나선 위상 ξ, 피치각 ψ 의 후행 로그 나선을 θ 구간에서 샘플링 → (x, y)."""
+    k = np.tan(np.radians(pitch_deg))
+    th = np.linspace(theta_min, theta_max, n)
+    r = np.exp(xi - k * th)
+    return r * np.sin(th), R0 - r * np.cos(th)
+
+
+def peak_candidates(l_deg: float, b_deg: float, v_lsr_kms: float,
+                    R0: float = R_SUN_KPC) -> dict:
+    """HI 피크 하나 → 운동학적 거리 후보들 (조감도 XY + 은하중심 극좌표)."""
+    dist = velocity_to_distance(v_lsr_kms, l_deg, b_deg)
+    out = dict(valid=bool(dist['valid']), ambiguous=bool(dist.get('ambiguous', False)),
+               in_inner=bool(dist['in_inner']), R_kpc=dist['R_kpc'], cands=[])
+    if not dist['valid']:
+        return out
+    kinds = [('near', dist['d_near_kpc']), ('far', dist['d_far_kpc'])] \
+        if out['ambiguous'] else [('unique', dist['d_far_kpc'])]
+    for kind, d in kinds:
+        if not np.isfinite(d) or d <= 0.05:
+            continue
+        x, y = distance_to_xy(d, l_deg, b_deg)
+        r, th = galactocentric_polar(x, y, R0)
+        out['cands'].append(dict(kind=kind, d=float(d), x=x, y=y,
+                                 r=float(r), th=float(th)))
+    if len(out['cands']) < 2:
+        out['ambiguous'] = False
+    out['valid'] = bool(out['cands'])
+    return out
+
+
+def _hough_votes(lnr, th, w, pitches, xi_edges, sigma):
+    """(ψ, ξ) 허프 누적 배열 — 각 후보가 가우스 커널로 투표."""
+    xc = 0.5 * (xi_edges[1:] + xi_edges[:-1])
+    acc = np.zeros((len(pitches), len(xc)))
+    if len(lnr) == 0:
+        return acc
+    for a, psi in enumerate(pitches):
+        xi = lnr + np.tan(np.radians(psi)) * th
+        acc[a] = (w[:, None] * np.exp(-0.5 * ((xc[None, :] - xi[:, None]) / sigma) ** 2)).sum(0)
+    return acc
+
+
+def infer_spiral_arms(
+    peaks: list[dict],
+    *,
+    b_max_deg: float = 30.0,
+    pitch_range: tuple = (5.0, 25.0),
+    pitch_step: float = 0.5,
+    tol_lnr: float = 0.08,
+    max_arms: int = 6,
+    ambiguity: str = 'auto',
+    min_points_per_arm: int = 4,
+    min_span_deg: float = 20.0,
+    max_gap_deg: float = 60.0,
+    r_range: tuple = (3.0, 20.0),
+    R0: float = R_SUN_KPC,
+) -> dict:
+    """
+    관측된 HI 피크들만으로 나선팔(로그 나선)을 추론한다.
+
+    Parameters
+    ----------
+    peaks        : [{'l_deg', 'b_deg', 'v_lsr_kms', 'T_b_peak', ...}, ...]
+    b_max_deg    : |b| 가 이보다 크면 은하면 투영 거리를 믿을 수 없어 제외
+    pitch_range  : 탐색 피치각 범위 [deg]  (우리 은하 팔은 대략 10~14°)
+    tol_lnr      : 팔 소속 허용 폭 (ln r 단위, 0.08 ≈ 8 kpc 에서 ±0.65 kpc)
+    ambiguity    : 'auto'(두 후보 모두 투표) | 'near' | 'far'
+    min_span_deg : 팔로 인정할 최소 방위각 길이 (덩어리 배제)
+    max_gap_deg  : 팔 위 이웃한 점 사이 최대 방위각 간격 — 이보다 벌어지면 끊는다
+    r_range      : 맞춤에 쓰는 은하중심 반경 범위 [kpc] (막대 영역 제외)
+
+    Returns
+    -------
+    dict(ok, reason, arms[], points[], hough{}, n_used, ...)
+    """
+    pts = []
+    for idx, p in enumerate(peaks):
+        l, b, v = float(p['l_deg']), float(p['b_deg']), float(p['v_lsr_kms'])
+        c = peak_candidates(l, b, v, R0)
+        cands = c['cands']
+        if ambiguity in ('near', 'far') and len(cands) == 2:
+            cands = [cands[0] if ambiguity == 'near' else cands[1]]
+        reason = ''
+        if not c['valid']:
+            reason = '거리 해 없음'
+        elif abs(b) > b_max_deg:
+            reason = f'|b|>{b_max_deg:g}°'
+        else:
+            cands_in = [q for q in cands if r_range[0] <= q['r'] <= r_range[1]]
+            if not cands_in:
+                reason = f'R∉[{r_range[0]:g},{r_range[1]:g}] kpc'
+        pts.append(dict(id=idx, l=l, b=b, v=v, T=float(p.get('T_b_peak', np.nan)),
+                        src=p.get('src', 'obs'), obs=p.get('obs', -1),
+                        cands=cands, all_cands=c['cands'], ambiguous=len(cands) == 2,
+                        R=c['R_kpc'], excluded=reason, arm=-1, sel=0 if cands else -1))
+
+    used = [p for p in pts if not p['excluded']]
+    pitches = np.arange(pitch_range[0], pitch_range[1] + 1e-9, pitch_step)
+    sigma = tol_lnr / 2.0
+
+    # 누적 배열 (UI 시각화용, 전체 점 기준)
+    flat = [(np.log(q['r']), q['th'], 1.0 / len(p['cands']))
+            for p in used for q in p['cands'] if r_range[0] <= q['r'] <= r_range[1]]
+    lnr_all = np.array([f[0] for f in flat]); th_all = np.array([f[1] for f in flat])
+    w_all = np.array([f[2] for f in flat])
+    if len(flat):
+        lo = (lnr_all + np.tan(np.radians(pitches.min())) * th_all).min()
+        lo = min(lo, (lnr_all + np.tan(np.radians(pitches.max())) * th_all).min())
+        hi = (lnr_all + np.tan(np.radians(pitches.min())) * th_all).max()
+        hi = max(hi, (lnr_all + np.tan(np.radians(pitches.max())) * th_all).max())
+        xi_edges = np.arange(lo - 3 * sigma, hi + 3 * sigma + 0.02, 0.02)
+    else:
+        xi_edges = np.arange(0.5, 3.5, 0.02)
+    acc_all = _hough_votes(lnr_all, th_all, w_all, pitches, xi_edges, sigma)
+
+    result = dict(ok=False, reason='', R0=R0, n_total=len(pts), n_used=len(used),
+                  b_max_deg=b_max_deg, ambiguity=ambiguity, tol_lnr=tol_lnr,
+                  arms=[], n_arms=0, pitch_deg=None,
+                  hough=dict(pitches=pitches.round(3).tolist(),
+                             xi=[float(xi_edges[0]), float(xi_edges[-1])],
+                             acc=np.round(acc_all / max(acc_all.max(), 1e-9), 3).tolist(),
+                             peaks=[]))
+
+    min_needed = 2 * min_points_per_arm
+    if len(used) < min_needed:
+        result['reason'] = (f'추론에 쓸 수 있는 피크가 {len(used)}개뿐입니다 '
+                            f'(최소 {min_needed}개 필요).')
+        result['points'] = _export_points(pts)
+        return result
+
+    ref = get_reference_spiral_arms()
+    remaining = list(used)
+    arms = []
+    xc = 0.5 * (xi_edges[1:] + xi_edges[:-1])
+    rejected = 0
+    suppress = np.zeros(acc_all.shape, dtype=bool)   # '팔 아님' 판정된 봉우리 주변
+    while len(remaining) >= min_points_per_arm and len(arms) < max_arms and rejected < 8:
+        lnr = np.array([np.log(q['r']) for p in remaining for q in p['cands']])
+        th = np.array([q['th'] for p in remaining for q in p['cands']])
+        w = np.array([1.0 / len(p['cands']) for p in remaining for q in p['cands']])
+        acc = _hough_votes(lnr, th, w, pitches, xi_edges, sigma)
+        acc[suppress] = 0.0
+        if acc.max() <= 0:
+            break
+        a, j = np.unravel_index(np.argmax(acc), acc.shape)
+        psi, xi0 = float(pitches[a]), float(xc[j])
+
+        # 최소제곱 재맞춤 (ln r = ξ − kθ), 소속점 재선정 2회
+        for _ in range(3):
+            k = np.tan(np.radians(psi))
+            members, sel = [], []
+            for p in remaining:
+                res = [abs(np.log(q['r']) + k * q['th'] - xi0) for q in p['cands']]
+                i = int(np.argmin(res))
+                if res[i] <= tol_lnr:
+                    members.append(p); sel.append(i)
+            members, sel = _longest_run(members, sel, np.radians(max_gap_deg))
+            if len(members) < 3:
+                break
+            T = np.array([p['cands'][i]['th'] for p, i in zip(members, sel)])
+            L = np.array([np.log(p['cands'][i]['r']) for p, i in zip(members, sel)])
+            if np.ptp(T) > np.radians(10):
+                slope, icpt = np.polyfit(T, L, 1)              # L = icpt + slope·θ
+                k_new = float(np.clip(-slope, np.tan(np.radians(pitch_range[0])),
+                                      np.tan(np.radians(pitch_range[1]))))
+                psi = float(np.degrees(np.arctan(k_new)))
+                xi0 = float(np.mean(L + k_new * T))
+            else:
+                xi0 = float(np.mean(L + k * T))
+
+        span = float(np.degrees(np.ptp(T))) if len(members) >= 2 else 0.0
+        if len(members) < min_points_per_arm or span < min_span_deg:
+            # 이 봉우리는 팔이 아님(점 몇 개의 덩어리) → 그 주변을 지우고 다음 봉우리
+            rejected += 1
+            suppress |= ((np.abs(pitches - pitches[a])[:, None] <= 3.0)
+                         & (np.abs(xc - xc[j])[None, :] <= tol_lnr))
+            continue
+
+        k = np.tan(np.radians(psi))
+        rs = np.array([p['cands'][i]['r'] for p, i in zip(members, sel)])
+        rms = float(np.sqrt(np.mean((rs - np.exp(xi0 - k * T)) ** 2)))
+        pad = np.radians(15.0)
+        t0, t1 = float(T.min() - pad), float(T.max() + pad)
+        x, y = spiral_xy(xi0, psi, t0, t1, R0=R0)
+        arm_id = len(arms)
+        clamped = (abs(psi - pitch_range[0]) < 0.3 or abs(psi - pitch_range[1]) < 0.3)
+        arms.append(dict(
+            id=arm_id, xi=xi0, pitch_deg=psi, pitch_clamped=bool(clamped),
+            theta_min=t0, theta_max=t1,
+            n=len(members), span_deg=float(span), rms_kpc=rms,
+            r_sun_dir=float(np.exp(xi0)),
+            match=_closest_reference_arm(x, y, ref),
+            xy=np.column_stack([x, y]).round(4).tolist(),
+        ))
+        result['hough']['peaks'].append([psi, xi0])
+        for p, i in zip(members, sel):
+            p['arm'], p['sel'] = arm_id, i
+        mem_ids = {id(p) for p in members}
+        remaining = [p for p in remaining if id(p) not in mem_ids]
+
+    if not arms:
+        result['reason'] = ('점들이 나선 모양으로 이어지지 않습니다 — 관측 방향을 더 넓게, '
+                            '더 많이 모아 보세요.')
+        result['points'] = _export_points(pts)
+        return result
+
+    # 바깥 → 안쪽 순서로 정렬하지 않고, 태양 방향 반경 순(안→밖)으로 id 재부여
+    order = np.argsort([arm['r_sun_dir'] for arm in arms])
+    remap = {int(old): new for new, old in enumerate(order)}
+    arms = [arms[i] for i in order]
+    for new, arm in enumerate(arms):
+        arm['id'] = new
+    for p in pts:
+        if p['arm'] >= 0:
+            p['arm'] = remap[p['arm']]
+
+    n_in = sum(a['n'] for a in arms)
+    result.update(
+        ok=True, arms=arms, n_arms=len(arms), n_assigned=n_in,
+        pitch_deg=float(np.average([a['pitch_deg'] for a in arms],
+                                   weights=[a['n'] for a in arms])),
+        points=_export_points(pts, arms),
+    )
+    return result
+
+
+def _longest_run(members, sel, max_gap):
+    """θ 순으로 늘어놓았을 때 간격이 max_gap 이하로 이어지는 가장 긴 구간만 남긴다."""
+    if len(members) < 2:
+        return members, sel
+    th = np.array([p['cands'][i]['th'] for p, i in zip(members, sel)])
+    order = np.argsort(th)
+    breaks = np.where(np.diff(th[order]) > max_gap)[0]
+    runs = np.split(order, breaks + 1)
+    best = max(runs, key=len)
+    return [members[i] for i in best], [sel[i] for i in best]
+
+
+def _closest_reference_arm(x, y, ref: dict, tol_kpc: float = 1.0):
+    """맞춘 팔과 가장 가까운 문헌 팔 이름 (최근접 거리 중앙값 < tol 일 때)."""
+    best_name, best_d = None, np.inf
+    P = np.column_stack([x, y])
+    for name, info in ref.items():
+        rx, ry = info['xy']
+        Q = np.column_stack([rx, ry])
+        d = np.sqrt(((P[:, None, :] - Q[None, :, :]) ** 2).sum(-1)).min(axis=1)
+        md = float(np.median(d))
+        if md < best_d:
+            best_name, best_d = name, md
+    return dict(name=best_name if best_d < tol_kpc else None, dist_kpc=float(best_d))
+
+
+def _export_points(pts, arms=None):
+    out = []
+    for p in pts:
+        sel = p.get('sel', -1)
+        c = p['cands'][sel] if sel >= 0 and p['cands'] else None
+        alt = [q for q in p['all_cands'] if c is None or q['kind'] != c['kind']]
+        res_kpc = None
+        if c is not None and arms is not None and p['arm'] >= 0:
+            arm = arms[p['arm']]
+            k = np.tan(np.radians(arm['pitch_deg']))
+            res_kpc = float(abs(np.log(c['r']) + k * c['th'] - arm['xi']) * c['r'])
+        out.append(dict(
+            id=p['id'], obs=p['obs'], src=p['src'],
+            l=p['l'], b=p['b'], v=p['v'],
+            T=None if not np.isfinite(p['T']) else p['T'],
+            R=None if not np.isfinite(p['R']) else float(p['R']),
+            x=c['x'] if c else None, y=c['y'] if c else None,
+            d=c['d'] if c else None, kind=c['kind'] if c else None,
+            alt=[dict(x=q['x'], y=q['y'], d=q['d'], kind=q['kind']) for q in alt],
+            ambiguous=len(p['all_cands']) == 2, arm=p['arm'],
+            excluded=p['excluded'] or None, residual_kpc=res_kpc,
+        ))
+    return out
+
+
+# ═══════════════════════════════════════════════════════════
+# 6. 문헌 모델 예측 — 시선 방향별 예상 교차점 / 합성 관측
+# ═══════════════════════════════════════════════════════════
+
+def predict_sightline_crossings(l_deg: float, b_deg: float = 0.0,
+                                d_max: float = 20.0, R0: float = R_SUN_KPC,
+                                v0: float = V_CIRC_KMS) -> list[dict]:
+    """
+    문헌 나선팔 모델에서, 은하 경도 l 시선이 팔을 가로지르는 지점과
+    그곳 가스가 보일 '예상 LSR 속도'(평탄 회전 곡선)를 계산.
+    """
+    ux, uy = np.sin(np.radians(l_deg)), np.cos(np.radians(l_deg))
+    cos_b = np.cos(np.radians(b_deg))
+    out = []
+    for name, info in get_reference_spiral_arms().items():
+        x, y = (np.asarray(a) for a in info['xy'])
+        # 선분 P_i→P_{i+1} 과 반직선 t·u (t>0) 의 교점
+        px, py = x[:-1], y[:-1]
+        qx, qy = x[1:] - px, y[1:] - py
+        den = ux * qy - uy * qx
+        with np.errstate(divide='ignore', invalid='ignore'):
+            t = (px * qy - py * qx) / den
+            s = (px * uy - py * ux) / den
+        hit = np.isfinite(t) & (t > 0.05) & (t < d_max) & (s >= 0) & (s <= 1)
+        for d in np.sort(t[hit]):
+            cx, cy = d * ux, d * uy
+            R = float(np.hypot(cx, R0 - cy))
+            v = v0 * (R0 / R - 1.0) * np.sin(np.radians(l_deg)) * cos_b
+            out.append(dict(arm=name, d=float(d), x=float(cx), y=float(cy),
+                            R=R, v_lsr_pred=float(v)))
+    out.sort(key=lambda c: c['d'])
+    return out
+
+
+def synthetic_arm_peaks(n_dirs: int = 40, v_noise_kms: float = 7.0,
+                        b_sigma_deg: float = 2.5, seed: Optional[int] = None,
+                        d_max: float = 16.0) -> list[dict]:
+    """
+    문헌 팔 모델로부터 '가상의 관측 피크'를 만든다 (데모/교육용 합성 데이터).
+
+    무작위 경도 방향의 시선이 팔과 만나는 곳마다 HI 구름을 두고,
+    회전 곡선으로 v_LSR 을 계산한 뒤 속도 잡음을 더한다.
+    → 이 v_LSR 을 다시 거리로 환산하면 실제처럼 근/원 모호성과
+      운동학적 거리 오차가 그대로 재현된다.
+    """
+    rng = np.random.default_rng(seed)
+    out = []
+    ls = np.sort(rng.uniform(0, 360, n_dirs))
+    for l in ls:
+        if min(abs(np.sin(np.radians(l))), 1) < 0.08:      # 중심/반중심 방향은 거리 불능
+            continue
+        b = float(rng.normal(0, b_sigma_deg))
+        for c in predict_sightline_crossings(l, b, d_max=d_max):
+            v = c['v_lsr_pred'] + rng.normal(0, v_noise_kms)
+            T = float(12 + 55 * np.exp(-c['d'] / 7.0) * rng.uniform(0.5, 1.0))
+            out.append(dict(l_deg=float(l), b_deg=b, v_lsr_kms=float(v),
+                            T_b_peak=T, src='synthetic', truth_arm=c['arm']))
+    return out
 
 
 # ═══════════════════════════════════════════════════════════

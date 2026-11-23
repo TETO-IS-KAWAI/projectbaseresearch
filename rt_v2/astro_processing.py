@@ -39,6 +39,11 @@ _K_B   = const.k_B.value                # 1.381e-23     J/K
 
 HI_FREQ_HZ = 1.42040575177e9            # 21cm 수소선 정지 주파수 [Hz]
 
+# 은하 회전 모델 상수 — Reid et al. (2019) ApJ 885, 131 (논문 IV.B 와 동일)
+#   평탄 회전 곡선 가정. spiral_arm.py 도 이 값을 그대로 가져다 쓴다.
+R_SUN_KPC  = 8.15                       # 태양~은하 중심 거리 R₀ [kpc]
+V_CIRC_KMS = 236.0                      # 태양 위치 원형 속도 Θ₀ [km/s]
+
 UNSEEN = np.nan                         # 미관측/무효 픽셀 표시
 
 
@@ -371,8 +376,8 @@ def galactocentric_velocity(
     ra_deg: float,
     dec_deg: float,
     v_lsr_kms: float,
-    R_sun_kpc: float = 8.5,
-    v_circ_kms: float = 220.0,
+    R_sun_kpc: float = R_SUN_KPC,
+    v_circ_kms: float = V_CIRC_KMS,
 ) -> dict:
     """
     LSR 시선 속도 → 은하 좌표계 해석.
@@ -383,8 +388,8 @@ def galactocentric_velocity(
     Parameters
     ----------
     v_lsr_kms   : 관측된 LSR 시선 속도 [km/s]
-    R_sun_kpc   : 태양~은하 중심 거리 [kpc]  (기본: IAU 권고값 8.5 kpc)
-    v_circ_kms  : 은하 원반 원형 속도 [km/s]  (기본: 220 km/s)
+    R_sun_kpc   : 태양~은하 중심 거리 [kpc]  (기본: Reid+2019 8.15 kpc)
+    v_circ_kms  : 은하 원반 원형 속도 [km/s]  (기본: Reid+2019 236 km/s)
 
     Returns
     -------
@@ -410,7 +415,8 @@ def galactocentric_velocity(
     cos_b = np.cos(b)
     d_near = d_far = float('nan')
     in_inner = False
-    if abs(sin_l) >= 0.05 and abs(cos_b) >= 0.1:
+    # |b|>60° 는 은하면 회전 모델을 적용할 수 없다 — 지도(spiral_arm.velocity_to_distance)와 같은 기준
+    if abs(sin_l) >= 0.05 and abs(cos_b) >= 0.5:
         with np.errstate(invalid='ignore', divide='ignore'):
             ratio = v_lsr_kms / (v_circ_kms * sin_l * cos_b) + 1.0
             if ratio > 0:
@@ -419,8 +425,14 @@ def galactocentric_velocity(
                 disc = R_sun_kpc**2 * np.cos(l)**2 + R**2 - R_sun_kpc**2  # = R² - R_sun²·sin²l
                 if disc >= 0:
                     sqrt_d = np.sqrt(disc)
-                    d_near = max(R_sun_kpc * np.cos(l) - sqrt_d, 0.0) / abs(cos_b)
-                    d_far  = (R_sun_kpc * np.cos(l) + sqrt_d) / abs(cos_b)
+                    d1 = R_sun_kpc * np.cos(l) - sqrt_d
+                    d2 = R_sun_kpc * np.cos(l) + sqrt_d
+                    # d>0 인 해만 물리적 (spiral_arm.velocity_to_distance 와 동일 규칙)
+                    sols = [d for d in (d1, d2) if d > 1e-3]
+                    if len(sols) == 2 and (d2 - d1) > 0.05:
+                        d_near, d_far = d1 / abs(cos_b), d2 / abs(cos_b)
+                    elif sols:
+                        d_near = d_far = sols[-1] / abs(cos_b)
 
     return {
         'l_deg':                       l_deg,
@@ -698,6 +710,7 @@ def process_observation(
     G_sys: float = 1.0,
     temp_method: str = 'peak',
     seed: int = None,
+    progress=None,
 ) -> dict:
     """
     관측 1포인트 처리:
@@ -719,7 +732,10 @@ def process_observation(
     T_b_spectrum      : 밝기온도 스펙트럼 배열 [K]
     power             : FFT 파워 배열 (전체 채널)
     """
+    step = progress if callable(progress) else (lambda *_: None)
+
     # IQ 읽기 or 더미 생성
+    step('load')
     if wav_filepath is not None:
         iq, sample_rate = load_iq_wav(wav_filepath, max_seconds=30.0)
     elif bin_filepath is not None:
@@ -734,9 +750,11 @@ def process_observation(
         )
 
     # FFT
+    step('fft')
     freq_offsets, power = compute_power_spectrum(iq, sample_rate, nfft)
 
     # 도플러 보정
+    step('doppler')
     v_kms           = radial_velocity_correction(
         ra_deg, dec_deg, obs_time,
         obs_lat, obs_lon, obs_height_m,
@@ -746,6 +764,7 @@ def process_observation(
     # 양수 주파수만 사용해 T_b 환산
     # T_b(ν) = [P(ν)/B(ν) − 1] × T_sys   (B = 이동 중앙값 밴드패스)
     # off-line 채널 ≈ 0 K, HI 피크 = 선 초과분/밴드패스 × T_sys
+    step('bandpass')
     mask         = freqs_corrected > 0
     freqs_m      = freqs_corrected[mask]
     T_b_spectrum = rayleigh_jeans_temperature(

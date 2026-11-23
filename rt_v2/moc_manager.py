@@ -72,7 +72,8 @@ class MocManager:
         try:
             from mocpy import MOC
             order  = int(np.log2(self._nside))
-            ipixes = np.array(list(self._obs_pix))
+            # MOC 는 NESTED 번호 체계 — 이 모듈은 RING 으로 관리하므로 변환 필수
+            ipixes = np.asarray(self._hp.ring_to_nested(np.array(sorted(self._obs_pix))))
             self._moc = MOC.from_healpix_cells(
                 ipix=ipixes,
                 depth=np.full(len(ipixes), order, dtype=int),
